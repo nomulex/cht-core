@@ -45,10 +45,14 @@ const unregisterServiceWorkerAndWipeAllCaches = () => browser.executeAsyncScript
   const callback = arguments[arguments.length - 1];
 
   const registrations = await navigator.serviceWorker.getRegistrations();
-  registrations.forEach(registration => registration.unregister());
+  for (const registration of registrations) {
+    await registration.unregister();
+  }
 
   const cacheNames = await caches.keys();
-  cacheNames.forEach(async (name) => await caches.delete(name));
+  for (const name of cacheNames) {
+    await caches.delete(name);
+  }
 
   callback();
 });
