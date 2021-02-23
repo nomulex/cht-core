@@ -37,6 +37,7 @@ const stubAllCachedRequests = () => browser.executeAsyncScript(async () => {
 
 const doFetch = (path, headers) => browser.executeAsyncScript(async (innerPath, innerHeaders) => {
   console.error('calling doFetch');
+  console.error(innerPath);
   const callback = arguments[arguments.length - 1];
   const result = await fetch(innerPath, { headers: innerHeaders });
   callback({
