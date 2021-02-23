@@ -22,6 +22,7 @@ const handleUpdateModalNative = async () => {
 
 module.exports = {
   clickElement: element => {
+    utils.deprecated('clickElement', 'clickElementNative');
     handleUpdateModal();
     return browser
       .wait(

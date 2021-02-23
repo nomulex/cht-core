@@ -194,7 +194,6 @@ describe('db-sync-filter', () => {
   };
 
   beforeAll(async () => {
-    await commonElements.goToMessagesNative();
     await utils.saveDocs([...initialDocs, ...initialReports]);
     await utils.request({
       path: `/_users/org.couchdb.user:${restrictedUserName}`,

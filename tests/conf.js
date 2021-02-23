@@ -60,6 +60,8 @@ const baseConfig = {
   onPrepare: async () => {
     jasmine.getEnv().addReporter(utils.specReporter);
     jasmine.getEnv().addReporter(utils.reporter);
+    jasmine.getEnv().addReporter(utils.currentSpecReporter);
+
     browser.waitForAngularEnabled(false);
 
     // wait for startup to complete
@@ -71,6 +73,8 @@ const baseConfig = {
         .logs()
         .get('browser')
         .then(logs => {
+          const currentSpec = jasmine.currentSpec.fullName;
+          browserLogStream.write(`\n~~~~~~~~~~~ ${currentSpec} ~~~~~~~~~~~~~~~~~~~~~\n\n`);
           logs
             .map(log => `[${log.level.name_}] ${log.message}\n`)
             .forEach(log => browserLogStream.write(log));
