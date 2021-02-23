@@ -240,7 +240,6 @@ describe('Purging on login', () => {
   const restartSentinel = () => utils.stopSentinel().then(() => utils.startSentinel());
 
   it('Logging in as a restricted user with configured purge rules should not download purged docs', async () => {
-    await utils.resetBrowser();
     await commonElements.goToLoginPageNative();
     await loginPage.loginNative(restrictedUserName, restrictedPass);
     await commonElements.calmNative();

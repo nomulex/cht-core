@@ -211,7 +211,6 @@ describe('Target aggregates', () => {
       await utils.saveDocs([parentPlace, otherParentPlace]);
       await utils.saveDocs(docs);
       await utils.createUsers([ user ]);
-      await utils.resetBrowser();
       await commonElements.goToLoginPageNative();
       await loginPage.loginNative(user.username, user.password);
       await commonElements.calmNative();

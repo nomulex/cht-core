@@ -200,7 +200,6 @@ describe('db-sync-filter', () => {
       method: 'PUT',
       body: restrictedUser
     });
-    await utils.resetBrowser();
     await commonElements.goToLoginPageNative();
     await loginPage.loginNative(restrictedUserName, restrictedPass);
     await commonElements.calmNative();
