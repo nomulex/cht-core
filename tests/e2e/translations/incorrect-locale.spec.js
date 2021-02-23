@@ -58,7 +58,10 @@ describe('Incorrect locale', () => {
     await helper.clickElementNative(getSubmitButton());
 
     // wait for language to load
-    await browser.wait(async () => await element(by.css('#reports-tab .button-label')).getText() === 'HilReports');
+    await browser.wait(
+      async () => await element(by.css('#reports-tab .button-label')).getText() === 'HilReports',
+      2000
+    );
 
     // we have correct language!
     const text = await element(by.css('#reports-tab .button-label')).getText();
