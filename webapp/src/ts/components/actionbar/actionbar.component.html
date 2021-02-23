@@ -43,7 +43,7 @@
             <span class="fa fa-check-circle"></span>
             <p>{{'select.mode.start' | translate}}</p>
           </a>
-          <a class="mm-icon mm-icon-inverse mm-icon-caption" *ngIf="isAdmin" (click)="actionBar?.left?.exportFn($event)" [ngClass]="{'mm-icon-disabled': !actionBar?.left?.hasResults}">
+          <a class="mm-icon mm-icon-inverse mm-icon-caption" *ngIf="isAdmin && !actionBar?.left?.exportFn" (click)="actionBar?.left?.exportFn($event)" [ngClass]="{'mm-icon-disabled':  !actionBar?.left?.hasResults}">
             <span class="fa fa-arrow-down"></span>
             <p>{{'Export' | translate}}</p>
           </a>
@@ -88,7 +88,7 @@
             <p>{{ actionBar.left.childPlaces[0].create_key | translate}}</p>
           </a>
 
-          <a *ngIf="isAdmin"
+          <a *ngIf="isAdmin && actionBar?.left?.exportFn"
             class="mm-icon mm-icon-inverse mm-icon-caption"
             (click)="actionBar?.left?.exportFn()"
             [ngClass]="{ 'mm-icon-disabled': !actionBar.left.hasResults }"
@@ -101,11 +101,11 @@
 
       <div class="col-sm-4 general-actions left-pane" *ngIf="currentTab === 'messages'">
         <div class="actions dropup">
-          <a class="mm-icon mm-icon-inverse mm-icon-caption send-message" (click)="actionBar?.left?.openSendMessageModal($event)">
+          <a class="mm-icon mm-icon-inverse mm-icon-caption send-message" *ngIf="actionBar?.left?.openSendMessageModal" (click)="actionBar?.left?.openSendMessageModal($event)">
             <span class="fa fa-plus"></span>
             <p>{{'Send Message' | translate}}</p>
           </a>
-          <a class="mm-icon mm-icon-inverse mm-icon-caption" *ngIf="isAdmin" (click)="actionBar?.left?.exportFn()" [ngClass]="{'mm-icon-disabled': !actionBar?.left?.hasResults}">
+          <a class="mm-icon mm-icon-inverse mm-icon-caption" *ngIf="isAdmin && actionBar?.left?.exportFn" (click)="actionBar?.left?.exportFn()" [ngClass]="{'mm-icon-disabled': !actionBar?.left?.hasResults}">
             <span class="fa fa-arrow-down"></span>
             <p>{{'Export' | translate}}</p>
           </a>
@@ -130,7 +130,7 @@
               <span class="fa fa-envelope"></span>
               <p>{{'Send Message' | translate}}</p>
             </a>
-            <a class="mm-icon mm-icon-inverse mm-icon-caption send-message desktop-only" (click)="actionBar?.right?.sendTo?.phone && actionBar?.right?.openSendMessageModal(actionBar?.right?.sendTo?._id)" [ngClass]="{'mm-icon-disabled': !actionBar?.right?.sendTo?.phone}">
+            <a class="mm-icon mm-icon-inverse mm-icon-caption send-message desktop-only" *ngIf="actionBar?.right?.openSendMessageModal" (click)="actionBar?.right?.sendTo?.phone && actionBar?.right?.openSendMessageModal(actionBar?.right?.sendTo?._id)" [ngClass]="{'mm-icon-disabled': !actionBar?.right?.sendTo?.phone}">
               <span class="fa fa-envelope"></span>
               <p>{{'Send Message' | translate}}</p>
             </a>
