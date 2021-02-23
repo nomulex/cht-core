@@ -39,13 +39,18 @@ const doFetch = (path, headers) => browser.executeAsyncScript(async (innerPath, 
   console.error('calling doFetch');
   console.error(innerPath);
   const callback = arguments[arguments.length - 1];
-  const result = await fetch(innerPath, { headers: innerHeaders });
-  callback({
-    body: await result.text(),
-    ok: result.ok,
-    status: result.status,
-  });
-  console.error('finished doFetch');
+  try {
+    const result = await fetch(innerPath, { headers: innerHeaders });
+    callback({
+      body: await result.text(),
+      ok: result.ok,
+      status: result.status,
+    });
+    console.error('finished doFetch');
+  } catch (err) {
+    console.error('error in doFetch');
+    callback();
+  }
 }, path, headers);
 
 const unregisterServiceWorkerAndWipeAllCaches = () => browser.executeAsyncScript(async () => {
