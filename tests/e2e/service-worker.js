@@ -49,6 +49,7 @@ const doFetch = (path, headers) => browser.executeAsyncScript(async (innerPath, 
     console.error('finished doFetch');
   } catch (err) {
     console.error('error in doFetch');
+    console.error(err);
     callback();
   }
 }, path, headers);
