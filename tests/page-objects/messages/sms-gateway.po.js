@@ -29,7 +29,9 @@ const getTaskState = async element => {
 module.exports = {
 
   showMessageList :  async () => {
+    console.log('before reset browser');
     await utils.resetBrowser();
+    console.log('after reset browser');
     await helper.clickElementNative(element(by.id('messages-tab')));
 
     // LHS
@@ -40,7 +42,7 @@ module.exports = {
 
   messageHeading: (index) => messagePo.messageByIndex(index).element(by.css('.heading h4')),
   messageSummary: (index) => messagePo.messageByIndex(index).element(by.css('.summary p')),
-  
+
   incomingData,
   messageDetailStatus: () =>  element(by.css('#message-content li.incoming:first-child .data .state.received')),
 

@@ -600,15 +600,13 @@ module.exports = {
    */
   revertDb: revertDb,
 
-  resetBrowser: () => {
-    return browser.driver
-      .navigate()
-      .refresh()
-      .then(() => {
-        return browser.wait(() => {
-          return element(by.css('#messages-tab')).isPresent();
-        }, 10000,'Timed out waiting for browser to reset. Looking for element #messages-tab');
-      });
+  resetBrowser: async () => {
+    console.log('before refresh');
+    await browser.driver.navigate().refresh();
+    console.log('after refresh');
+    const msg = 'Timed out waiting for browser to reset. Looking for element #messages-tab';
+    await browser.wait(() => element(by.css('#messages-tab')).isPresent(), 10000, msg);
+    console.log('after got messages tab');
   },
 
   countOf: count => {

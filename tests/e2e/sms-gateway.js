@@ -155,6 +155,7 @@ describe('sms-gateway api', () => {
 
     it('shows content', async () => {
       //LHS
+      console.log('wait for list');
       const phone = '+64271234567';
       const msg = 'hello';
       await smsGatewayPo.showMessageList();
