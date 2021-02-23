@@ -6,6 +6,7 @@ const utils = require('../utils');
 
 const getCachedRequests = async () => {
   const cacheDetails = await browser.executeAsyncScript(async () => {
+    console.error('calling cached requests');
     const callback = arguments[arguments.length - 1];
     const cacheNames = await caches.keys();
     const cache = await caches.open(cacheNames[0]);
@@ -15,6 +16,7 @@ const getCachedRequests = async () => {
       name: cacheNames[0],
       requests: cachedRequestSummary,
     });
+    console.error('finished cached requests');
   });
 
   const urls = cacheDetails.requests.map(request => URL.parse(request.url).pathname);
@@ -23,15 +25,18 @@ const getCachedRequests = async () => {
 };
 
 const stubAllCachedRequests = () => browser.executeAsyncScript(async () => {
+  console.error('calling stubAllCachedRequests');
   const callback = arguments[arguments.length - 1];
   const cacheNames = await caches.keys();
   const cache = await caches.open(cacheNames[0]);
   const cachedRequests = await cache.keys();
   await Promise.all(cachedRequests.map(request => cache.put(request, new Response('cache'))));
   callback();
+  console.error('finished stubAllCachedRequests');
 });
 
 const doFetch = (path, headers) => browser.executeAsyncScript(async (innerPath, innerHeaders) => {
+  console.error('calling doFetch');
   const callback = arguments[arguments.length - 1];
   const result = await fetch(innerPath, { headers: innerHeaders });
   callback({
@@ -39,9 +44,11 @@ const doFetch = (path, headers) => browser.executeAsyncScript(async (innerPath, 
     ok: result.ok,
     status: result.status,
   });
+  console.error('finished doFetch');
 }, path, headers);
 
 const unregisterServiceWorkerAndWipeAllCaches = () => browser.executeAsyncScript(async () => {
+  console.error('calling unregisterServiceWorkerAndWipeAllCaches');
   const callback = arguments[arguments.length - 1];
 
   const registrations = await navigator.serviceWorker.getRegistrations();
@@ -55,6 +62,7 @@ const unregisterServiceWorkerAndWipeAllCaches = () => browser.executeAsyncScript
   }
 
   callback();
+  console.error('called unregisterServiceWorkerAndWipeAllCaches');
 });
 
 describe('Service worker cache', () => {
