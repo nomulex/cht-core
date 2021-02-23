@@ -41,6 +41,7 @@ const doFetch = (path, headers) => browser.executeAsyncScript(async (innerPath, 
   const callback = arguments[arguments.length - 1];
   try {
     const result = await fetch(innerPath, { headers: innerHeaders });
+    console.error('completed doFetch');
     callback({
       body: await result.text(),
       ok: result.ok,
