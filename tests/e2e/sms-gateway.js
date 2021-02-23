@@ -150,9 +150,7 @@ describe('sms-gateway api', () => {
         ],
       };
       await pollSmsApi(body);
-      await helper.handleUpdateModalNative();
     });
-    afterEach(async () => { await helper.handleUpdateModalNative(); });
 
     it('shows content', async () => {
       //LHS
