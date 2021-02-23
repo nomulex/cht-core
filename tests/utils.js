@@ -605,7 +605,7 @@ module.exports = {
     await browser.driver.navigate().refresh();
     console.log('after refresh');
     const msg = 'Timed out waiting for browser to reset. Looking for element #messages-tab';
-    await browser.wait(() => element(by.css('#messages-tab')).isPresent(), 10000, msg);
+    await browser.wait(() => element(by.css('#messages-tab')).isPresent(), 2000, msg);
     console.log('after got messages tab');
   },
 
