@@ -124,6 +124,8 @@ describe('update_sent_by', () => {
       .then(() => utils.getDoc(report._id))
       .then(updated => {
         expect(updated.sent_by).toEqual('alpha');
+        // fail this deliberately to see how the browser looks like
+        expect(2).toEqual(1);
       });
   });
 });
