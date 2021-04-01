@@ -52,12 +52,19 @@ describe('Contacts component', () => {
   let exportService;
   let xmlFormsService;
   let globalActions;
+  let district;
 
   beforeEach(async(() => {
+    district = {
+      _id: 'district-id',
+      name: 'My District',
+      type: 'district_hospital'
+    };
     searchService = { search: sinon.stub().resolves([]) };
     settingsService = { get: sinon.stub().resolves([]) };
     sessionService = {
-      isDbAdmin: sinon.stub().returns(false)
+      isDbAdmin: sinon.stub().returns(false),
+      isOnlineOnly: sinon.stub().returns(false),
     };
     tourService = { startIfNeeded: sinon.stub() };
     authService = { has: sinon.stub().resolves(false) };
@@ -65,14 +72,10 @@ describe('Contacts component', () => {
       subscribe: sinon.stub().resolves(of({}))
     };
     userSettingsService = {
-      get: sinon.stub().resolves({ facility_id: 'district-id' })
+      get: sinon.stub().resolves({ facility_id: district._id })
     };
     getDataRecordsService = {
-      get: sinon.stub().resolves({
-        _id: 'district-id',
-        name: 'My District',
-        type: 'district_hospital'
-      })
+      get: sinon.stub().resolves(district)
     };
     contactTypesService = {
       getChildren: sinon.stub().resolves([
@@ -82,7 +85,9 @@ describe('Contacts component', () => {
         }
       ]),
       getAll: sinon.stub().resolves([]),
-      includes: sinon.stub()
+      includes: sinon.stub(),
+      getTypeId: sinon.stub().callsFake(contact => contact?.type === 'contact' ? contact.contact_type : contact?.type),
+      getTypeById: sinon.stub().callsFake((types, id) => types?.find(type => type.id === id)),
     };
     scrollLoaderProvider = {
       init: (callback) => {
@@ -104,7 +109,6 @@ describe('Contacts component', () => {
     const mockedSelectors = [
       { selector: Selectors.getContactsList, value: [] },
       { selector: Selectors.getFilters, value: {} },
-      { selector: Selectors.getIsAdmin, value: false },
       { selector: Selectors.contactListContains, value: contactListContains },
       { selector: Selectors.getSelectedContact, value: selectedContact },
     ];
@@ -162,7 +166,7 @@ describe('Contacts component', () => {
   it('should create ContactsComponent', () => {
     expect(component).to.exist;
   });
-  
+
   it('ngOnInit() should load and filter contacts and watch for changes', () => {
     changesService.subscribe.reset();
     const spySubscriptionsAdd = sinon.spy(component.subscription, 'add');
@@ -271,6 +275,26 @@ describe('Contacts component', () => {
       expect(contacts[1]._id).to.equal('search-result');
     }));
 
+    it('should search for homeplace children of the correct type', fakeAsync(() => {
+      sinon.resetHistory();
+      searchResults = [ { _id: 'search-result' } ];
+
+      searchService.search.resolves(searchResults);
+      const updateContactsList = sinon.stub(ContactsActions.prototype, 'updateContactsList');
+      district.contact_type = 'whatever';
+      contactTypesService.getTypeId.returns('some type');
+
+      component.ngOnInit();
+      flush();
+
+      expect(contactTypesService.getTypeId.callCount).to.equal(3); // 1 initial, then 2 for each list item
+      expect(contactTypesService.getTypeId.args[0]).to.deep.equal([district]);
+      expect(contactTypesService.getTypeId.args[1]).to.deep.equal([updateContactsList.args[0][0][0]]);
+      expect(contactTypesService.getTypeId.args[2]).to.deep.equal([updateContactsList.args[0][0][1]]);
+      expect(contactTypesService.getChildren.callCount).to.equal(1);
+      expect(contactTypesService.getChildren.args[0]).to.deep.equal(['some type']);
+    }));
+
     it('Only displays the home place once', fakeAsync(() => {
       searchResults = [
         {
@@ -294,7 +318,7 @@ describe('Contacts component', () => {
     }));
 
     it('Only searches for top-level places as an admin', fakeAsync(() => {
-      store.overrideSelector(Selectors.getIsAdmin, true);
+      sessionService.isOnlineOnly.returns(true);
       userSettingsService.get.resolves({ facility_id: undefined });
       getDataRecordsService.get.resolves({});
       searchResults = [
@@ -483,7 +507,7 @@ describe('Contacts component', () => {
       searchResults = mockResults(49, 50);
       searchService.search.resolves(searchResults.concat(contacts));
       store.overrideSelector(Selectors.getContactsList, searchResults.concat(contacts));
-      
+
       scrollLoaderCallback();
       flush();
       const updatedContacts = component.contactsActions.updateContactsList.args[1][0];
