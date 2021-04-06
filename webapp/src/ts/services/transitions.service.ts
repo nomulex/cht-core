@@ -1,4 +1,3 @@
-import * as _ from 'lodash-es';
 import { Injectable } from '@angular/core';
 
 import { DbService } from './db.service';
@@ -12,10 +11,11 @@ export class TransitionsService {
   constructor(
     private dbService:DbService,
     private settingsService:SettingsService,
+    private mutingTransition:MutingTransition,
   ) {
   }
   private readonly AVAILABLE_TRANSITIONS = [
-    ['muting', new MutingTransition(this.dbService)],
+    { name: 'muting', transition: this.mutingTransition }
   ];
   private loadedTransitions = [];
 
@@ -37,12 +37,12 @@ export class TransitionsService {
     return this
       .loadSettings()
       .then(() => {
-        this.AVAILABLE_TRANSITIONS.forEach(([name, transition]) => {
+        this.AVAILABLE_TRANSITIONS.forEach(({ name, transition }) => {
           if (!this.isEnabled(name)) {
             return;
           }
 
-          if (!transition.init()) {
+          if (!transition.init(this.settings)) {
             return;
           }
 
@@ -60,5 +60,21 @@ export class TransitionsService {
     if (transitionConfig && !transitionConfig.disable) {
       return true;
     }
+  }
+
+  applyTransitions(docs) {
+    if (!this.inited || !this.loadedTransitions.length) {
+      return Promise.resolve(docs);
+    }
+
+    let promiseChain = Promise.resolve();
+    this.loadedTransitions.forEach(loadedTransition => {
+      if (!loadedTransition.transition.filter(docs)) {
+        return;
+      }
+
+      promiseChain = promiseChain.then(() => loadedTransition.transition.onMatch(docs));
+    });
+    return promiseChain.then(() => docs);
   }
 }

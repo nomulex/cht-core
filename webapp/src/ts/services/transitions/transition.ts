@@ -1,4 +1,6 @@
 export interface Transition {
   name:string;
-  init():void;
+  init(Object):void;
+  filter(Object):boolean;
+  onMatch(Object):Promise<any>;
 }

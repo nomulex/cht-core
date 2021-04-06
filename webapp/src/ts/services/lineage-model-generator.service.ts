@@ -120,6 +120,14 @@ export class LineageModelGeneratorService {
   private _docs(docs) {
     return this.lineageLib.hydrateDocs(docs);
   }
+
+  ids(ids) {
+    return this.ngZone.runOutsideAngular(() => this._ids(ids));
+  }
+
+  private _ids(ids) {
+    return this.lineageLib.fetchLineageByIds(ids);
+  }
 }
 
 

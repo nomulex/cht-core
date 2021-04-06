@@ -1,15 +1,17 @@
 import { Injectable } from '@angular/core';
 import { cloneDeep } from 'lodash-es';
 
+import * as registrationUtils from '@medic/registration-utils';
 import { DbService } from '../db.service';
 import { LineageModelGeneratorService } from '../lineage-model-generator.service';
 import { ContactMutedService } from '../contact-muted.service';
 import { ContactTypesService } from '../contact-types.service';
+import { Transition } from './transition';
 
 @Injectable({
   providedIn: 'root'
 })
-export class MutingTransition {
+export class MutingTransition implements Transition {
   constructor(
     private dbService:DbService,
     private lineageModelGeneratorService:LineageModelGeneratorService,
@@ -17,6 +19,7 @@ export class MutingTransition {
     private contactTypesService:ContactTypesService,
   ) { }
 
+  name = 'muting';
   private SETTINGS;
   private CONFIG_NAME = 'muting';
   private readonly MUTE_PROPERTY = 'mute_forms';
@@ -76,53 +79,207 @@ export class MutingTransition {
   }
 
   filter(docs) {
-    return docs.map(doc => this.isRelevantReport(doc) || this.isRelevantContact(doc));
+    const relevantDocs = docs
+      .map(doc => this.isRelevantReport(doc) || this.isRelevantContact(doc))
+      .filter(result => !!result);
+    return !!relevantDocs.length;
   }
 
-  private hydrateReport(doc) {
-    const clone = cloneDeep(doc);
-    delete clone.contact; // don't hydrate the submitter to save time
-    return this.lineageModelGeneratorService.docs([clone]);
+  private hydrateReports(context) {
+    const clones = context.reports.map(report => {
+      const clone = cloneDeep(report);
+      delete clone.contact; // don't hydrate the submitter to save time
+      return clone;
+    });
+    return this.lineageModelGeneratorService.docs(clones);
   }
 
   private hydrateContacts(docs) {
     return this.lineageModelGeneratorService.docs(docs);
   }
 
-  private getContact(doc) {
-    return this.hydrateReport(doc).then(hydratedDoc => {
-      return hydratedDoc?.patient || hydratedDoc?.place;
+  private getContact(report, context) {
+    let contact = report.patient || report.place;
+    if (!contact) {
+      // the report can be about a patient that we're just now creating
+      const subjectIds = registrationUtils.getSubjectIds(report);
+      contact = context.contacts.find(contact => subjectIds.includes(contact._id));
+    }
+
+    return contact;
+  }
+
+  private processReports(context) {
+    return this.hydrateContacts(context.reports).then(hydratedReports => {
+      let promiseChain = Promise.resolve();
+      hydratedReports.forEach(report => {
+        promiseChain = promiseChain.then(() => this.processReport(report, context));
+      });
+      return promiseChain;
     });
   }
 
-  private updateMutedState(contact, muted, reportId) {
+  private processReport(report, context) {
+    const mutedState = this.isMuteForm(report.form);
+    const contact = this.getContact(report, context);
+    if (!contact) {
+      return;
+    }
 
+    if (!!contact.muted === mutedState) {
+      // already in the correct state
+      return;
+    }
+
+    return this.updatedMuteState(contact, mutedState, report, context);
   }
 
+  private updatedMuteState(contact, muted, report, context) {
+    let rootContactId;
 
+    if (muted) {
+      rootContactId = contact._id;
+    } else {
+      let parent = contact;
+      while (parent) {
+        rootContactId = parent.muted ? parent._id : rootContactId;
+        parent = parent.parent;
+      }
+    }
 
-  onMatch(matchedDocs) {
-    const reports = [];
-    const contacts = [];
-
-
-
-    const mutedState = this.isMuteForm(doc.form);
-    // doc is a report
-    return this
-      .getContact(doc)
-      .then(contact => {
-        if (!contact) {
+    return this.getDescendants(rootContactId).then(descendents => {
+      descendents.forEach(descendent => {
+        const alreadyEditedContact = context.docs.find(doc => doc._id === descendent._id);
+        if (alreadyEditedContact) {
+          this.processContact(alreadyEditedContact, muted, report, context);
           return;
         }
 
-        if (Boolean(contact.muted) === mutedState) {
-          // already in the correct state
-          return;
-        }
-
-
+        this.processContact(descendent, muted, report, context);
+        context.docs.push(descendent);
       });
+    });
+  }
+
+  private getDescendants(contactId) {
+    return this.dbService.get().query('medic-client/contacts_by_place', { key: [contactId], include_docs: true });
+  }
+
+  private processContacts(context) {
+    if (!context.contacts.length) {
+      return Promise.resolve();
+    }
+
+    const parentIds = [];
+    const contactIds = context.contacts.map(contact => contact._id);
+    const getParentId = contact => contact.parent?._id;
+    const getIdsInLineage = contact => {
+      const idsInLineage = [];
+      let parent = contact.parent;
+      while (parent) {
+        idsInLineage.push(parent._id);
+        parent = parent.parent;
+      }
+      return idsInLineage;
+    };
+
+    context.contacts.forEach(contact => {
+      const parentId = getParentId(contact);
+      if (parentId && !contactIds.includes(parentId)) {
+        // don't try to hydrate fresh contacts
+        parentIds.push(parentId);
+      }
+    });
+
+    const knownMutedContacts = [];
+    context.docs.forEach(doc => {
+      if (!this.contactTypesService.includes(doc)) {
+        return;
+      }
+      if (!this.contactMutedService.getMuted(doc)) {
+        const index = parentIds.indexOf(doc._id);
+        if (index >= 0) {
+          parentIds.splice(index, 1);
+        }
+      } else {
+        knownMutedContacts.push(doc);
+      }
+    });
+
+    return this.lineageModelGeneratorService.ids(parentIds).then(hydratedParents => {
+      knownMutedContacts.push(...hydratedParents.filter(parent => this.contactMutedService.getMuted(parent)));
+      if (!knownMutedContacts.length) {
+        return;
+      }
+
+      context.contacts.forEach(contact => {
+        const idsInLineage = getIdsInLineage(contact);
+        if (knownMutedContacts.some(mutedParent => idsInLineage.includes(mutedParent._id))) {
+          this.processContact(contact, true, false, context);
+        }
+      });
+    });
+  }
+
+  private processContact(contact, muted, report, context) {
+    if (!contact.muting_details) {
+      // store "online" state when first processing this doc offline
+      contact.muting_details = {
+        online: {
+          muted: !!contact.muted,
+          date: contact.muted,
+          reportId: report?._id,
+        }
+      };
+    }
+
+    contact.muting_details.offline = {
+      muted: muted,
+      mutedTimestamp: context.mutedTimestamp,
+    };
+
+    if (muted) {
+      contact.muted = context.mutedTimestamp;
+    } else {
+      delete contact.muted;
+    }
+  }
+
+  onMatch(docs) {
+    const context = {
+      docs,
+      reports: [],
+      contacts: [],
+      mutedTimestamp: new Date().toISOString(),
+    };
+
+    let hasMutingReport;
+    let hasUnmutingReport;
+
+    docs.forEach(doc => {
+      if (this.isRelevantReport(doc)) {
+        if (this.isMuteForm(doc.form)) {
+          hasMutingReport = true;
+        } else {
+          hasUnmutingReport = true;
+        }
+        context.reports.push(doc);
+      }
+
+      if (this.isRelevantContact(doc)) {
+        context.contacts.push(doc);
+      }
+    });
+
+    if (hasMutingReport && hasUnmutingReport) {
+      // we have reports that mute and unmute in the same batch
+      // do something?? check if contacts are the same
+    }
+
+    return this
+      .processReports(context)
+      .then(() => this.processContacts(context))
+      .then(() => context.docs);
   }
 }
 
