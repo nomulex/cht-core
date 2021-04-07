@@ -46,6 +46,7 @@ export class MutingTransition implements Transition {
       );
       return false;
     }
+    return true;
   }
 
   private isMuteForm(form) {
@@ -60,6 +61,10 @@ export class MutingTransition implements Transition {
   }
 
   private isRelevantReport(doc) {
+    if (doc._rev) {
+      return;
+    }
+
     if (!this.isReport(doc)) {
       return;
     }
@@ -137,9 +142,8 @@ export class MutingTransition implements Transition {
   private updatedMuteState(contact, muted, report, context) {
     let rootContactId;
 
-    if (muted) {
-      rootContactId = contact._id;
-    } else {
+    rootContactId = contact._id;
+    if (!muted) {
       let parent = contact;
       while (parent) {
         rootContactId = parent.muted ? parent._id : rootContactId;
@@ -147,22 +151,37 @@ export class MutingTransition implements Transition {
       }
     }
 
-    return this.getDescendants(rootContactId).then(descendents => {
-      descendents.forEach(descendent => {
-        const alreadyEditedContact = context.docs.find(doc => doc._id === descendent._id);
+    return this.getContactsToProcess(rootContactId, context).then(contacts => {
+      contacts.forEach(contactToUpdate => {
+        const alreadyEditedContact = context.docs.find(doc => doc._id === contactToUpdate._id);
         if (alreadyEditedContact) {
           this.processContact(alreadyEditedContact, muted, report, context);
           return;
         }
 
-        this.processContact(descendent, muted, report, context);
-        context.docs.push(descendent);
+        this.processContact(contactToUpdate, muted, report, context);
+        context.docs.push(contactToUpdate);
       });
     });
   }
 
-  private getDescendants(contactId) {
-    return this.dbService.get().query('medic-client/contacts_by_place', { key: [contactId], include_docs: true });
+  private getContactsToProcess(contactId, context) {
+    // get descendents
+    return this.dbService
+      .get()
+      .query('medic-client/contacts_by_place', { key: [contactId], include_docs: true })
+      .then(results => {
+        const descendents = results.rows.map(row => row.doc);
+        const found = descendents.find(contact => contact._id === contactId) ||
+                      context.docs.find(contact => contact._id === contactId);
+        if (!found) {
+          return this.dbService.get().get(contactId).then(doc => {
+            return descendents.concat(doc);
+          });
+        }
+
+        return descendents;
+      });
   }
 
   private processContacts(context) {
@@ -228,14 +247,14 @@ export class MutingTransition implements Transition {
         online: {
           muted: !!contact.muted,
           date: contact.muted,
-          reportId: report?._id,
+          report_id: report?._id,
         }
       };
     }
 
     contact.muting_details.offline = {
       muted: muted,
-      mutedTimestamp: context.mutedTimestamp,
+      muted_timestamp: context.mutedTimestamp,
     };
 
     if (muted) {
