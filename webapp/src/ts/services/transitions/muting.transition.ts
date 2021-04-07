@@ -52,37 +52,46 @@ export class MutingTransition implements Transition {
   private isMuteForm(form) {
     return this.getMutingForms().includes(form);
   }
+
   private isUnmuteForm(form) {
     return this.getUnmutingForms().includes(form);
   }
 
-  private isReport(doc) {
-    return doc?.type === 'data_record';
-  }
-
+  /**
+   * Returns whether a document is a muting or unmuting report that should be processed.
+   * We only process new reports. The muting transition should not run when existing reports are edited.
+   * @param {Object} doc
+   * @returns {Boolean}
+   * @private
+   */
   private isRelevantReport(doc) {
-    if (doc._rev) {
-      return;
-    }
-
-    if (!this.isReport(doc)) {
-      return;
-    }
-
-    if (!doc.form) {
-      return;
+    // exclude docs that are not reports and existent reports.
+    if (!doc || doc._rev || doc.type !== 'data_record' || !doc.form) {
+      return false;
     }
 
     if (this.isMuteForm(doc.form) || this.isUnmuteForm(doc.form)) {
       return true;
     }
+
+    return false;
   }
 
+  /**
+   * Returns whether a document is a new contact.
+   * The muting transition should not run on when existing contacts are edited.
+   * @param {Object} doc
+   * @returns {Boolean}
+   * @private
+   */
   private isRelevantContact(doc) {
-    // only new contacts are relevant
     return !doc._rev && this.contactTypesService.includes(doc);
   }
 
+  /**
+   * Returns whether any of the docs from the batch should be
+   * @param docs
+   */
   filter(docs) {
     const relevantDocs = docs
       .map(doc => this.isRelevantReport(doc) || this.isRelevantContact(doc))
@@ -90,17 +99,13 @@ export class MutingTransition implements Transition {
     return !!relevantDocs.length;
   }
 
-  private hydrateReports(context) {
-    const clones = context.reports.map(report => {
+  private hydrateReports(reports) {
+    const clones = reports.map(report => {
       const clone = cloneDeep(report);
       delete clone.contact; // don't hydrate the submitter to save time
       return clone;
     });
     return this.lineageModelGeneratorService.docs(clones);
-  }
-
-  private hydrateContacts(docs) {
-    return this.lineageModelGeneratorService.docs(docs);
   }
 
   private getContact(report, context) {
@@ -115,7 +120,7 @@ export class MutingTransition implements Transition {
   }
 
   private processReports(context) {
-    return this.hydrateContacts(context.reports).then(hydratedReports => {
+    return this.hydrateReports(context.reports).then(hydratedReports => {
       let promiseChain = Promise.resolve();
       hydratedReports.forEach(report => {
         promiseChain = promiseChain.then(() => this.processReport(report, context));
@@ -155,11 +160,11 @@ export class MutingTransition implements Transition {
       contacts.forEach(contactToUpdate => {
         const alreadyEditedContact = context.docs.find(doc => doc._id === contactToUpdate._id);
         if (alreadyEditedContact) {
-          this.processContact(alreadyEditedContact, muted, report, context);
+          this.processContact(alreadyEditedContact, muted, report._id, context);
           return;
         }
 
-        this.processContact(contactToUpdate, muted, report, context);
+        this.processContact(contactToUpdate, muted, report._id, context);
         context.docs.push(contactToUpdate);
       });
     });
@@ -233,28 +238,30 @@ export class MutingTransition implements Transition {
 
       context.contacts.forEach(contact => {
         const idsInLineage = getIdsInLineage(contact);
-        if (knownMutedContacts.some(mutedParent => idsInLineage.includes(mutedParent._id))) {
-          this.processContact(contact, true, false, context);
+        const mutedParent = knownMutedContacts.find(mutedParent => idsInLineage.includes(mutedParent._id));
+        if (mutedParent) {
+          const reportId = mutedParent.muting_details?.offline.report_id;
+          this.processContact(contact, true, reportId, context);
         }
       });
     });
   }
 
-  private processContact(contact, muted, report, context) {
+  private processContact(contact, muted, reportId, context) {
     if (!contact.muting_details) {
       // store "online" state when first processing this doc offline
       contact.muting_details = {
         online: {
           muted: !!contact.muted,
           date: contact.muted,
-          report_id: report?._id,
         }
       };
     }
 
     contact.muting_details.offline = {
       muted: muted,
-      muted_timestamp: context.mutedTimestamp,
+      date: context.mutedTimestamp,
+      report_id: reportId,
     };
 
     if (muted) {

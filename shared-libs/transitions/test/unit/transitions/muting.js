@@ -139,7 +139,10 @@ describe('Muting transition', () => {
     describe('new contacts', () => {
       let clock;
 
-      beforeEach(() => clock = sinon.useFakeTimers());
+      beforeEach(() => {
+        clock = sinon.useFakeTimers();
+        config.getAll.returns({ contact_types: [{ id: 'person' }] });
+      });
       afterEach(() => clock.restore());
 
       it('should update the contact', () => {
@@ -148,6 +151,7 @@ describe('Muting transition', () => {
         mutingUtils.updateRegistrations.resolves();
         utils.getSubjectIds.returns(['id', 'patient']);
         mutingUtils.updateMutingHistory.resolves();
+        mutingUtils.isMutedInLineage.returns(true);
 
         return transition.onMatch({ doc, info }).then(result => {
           chai.expect(result).to.equal(true);
@@ -167,6 +171,7 @@ describe('Muting transition', () => {
         mutingUtils.updateRegistrations.rejects({ some: 'error' });
         utils.getSubjectIds.returns(['id', 'patient']);
         mutingUtils.updateMutingHistory.resolves();
+        mutingUtils.isMutedInLineage.returns(true);
 
         return transition
           .onMatch({ doc })
@@ -189,6 +194,7 @@ describe('Muting transition', () => {
         mutingUtils.updateRegistrations.resolves();
         utils.getSubjectIds.returns(['id', 'patient']);
         mutingUtils.updateMutingHistory.rejects({ some: 'error' });
+        mutingUtils.isMutedInLineage.returns(true);
 
         return transition
           .onMatch({ doc, info })

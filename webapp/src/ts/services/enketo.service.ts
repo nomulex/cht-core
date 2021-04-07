@@ -649,8 +649,8 @@ export class EnketoService {
       .then((doc) => {
         return this.xmlToDocs(doc, form.getDataStr({ irrelevant: false }));
       })
-      .then((docs) => this.transitionsService.applyTransitions(docs))
       .then((docs) => this.saveGeo(geoHandle, docs))
+      .then((docs) => this.transitionsService.applyTransitions(docs))
       .then((docs) => this.saveDocs(docs))
       .then((docs) => {
         this.servicesActions.setLastChangedDoc(docs[0]);

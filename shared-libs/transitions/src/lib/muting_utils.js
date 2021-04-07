@@ -9,31 +9,13 @@ infodoc.initLib(db.medic, db.sentinel);
 const BATCH_SIZE = 50;
 
 const getContact = doc => {
-  const contactId = doc.fields &&
-                    (
-                      doc.fields.patient_id ||
-                      doc.fields.place_id ||
-                      doc.fields.patient_uuid
-                    );
+  const contact = doc.patient || doc.place;
 
-  if (!contactId) {
+  if (!contact) {
     return Promise.reject(new Error('contact_not_found'));
   }
 
-  return db.medic
-    .allDocs({ key: contactId })
-    .then(result => {
-      if (!result.rows.length) {
-        return db.medic.query('medic-client/contacts_by_reference', { key: [ 'shortcode', contactId ] });
-      }
-      return result;
-    })
-    .then(result => {
-      if (!result.rows.length) {
-        throw(new Error('contact_not_found'));
-      }
-      return lineage.fetchHydratedDoc(result.rows[0].id);
-    });
+  return Promise.resolve(contact);
 };
 
 const getDescendants = (contactId) => {
@@ -44,6 +26,14 @@ const getDescendants = (contactId) => {
 
 const updateRegistration = (dataRecord, muted) => {
   return muted ? muteUnsentMessages(dataRecord) : unmuteMessages(dataRecord);
+};
+
+const getOfflineMutingDetails = (contacts) => {
+  const mutingDetails = {};
+  contacts.forEach(contact => {
+    mutingDetails[contact._id] = contact.muting_details;
+  });
+  return mutingDetails;
 };
 
 const updateContacts = (contacts, muted) => {
@@ -61,6 +51,7 @@ const updateContact = (contact, muted) => {
   } else {
     delete contact.muted;
   }
+  delete contact.muting_details;
 
   return contact;
 };
@@ -100,14 +91,19 @@ const getContactsAndSubjectIds = (contactIds, muted) => {
     });
 };
 
-const updateMutingHistories = (contacts, muted, reportId) => {
+const updateMutingHistories = (contacts, muted, reportId, offlineMutingDetails = {}) => {
   if (!contacts.length) {
     return Promise.resolve();
   }
 
   return infodoc
     .bulkGet(contacts.map(contact => ({ id: contact._id, doc: contact})))
-    .then(infoDocs => infoDocs.map(info => addMutingHistory(info, muted, reportId)))
+    .then(infoDocs => {
+      return infoDocs.map((info, idx) => {
+        const offlineMutingDetail = offlineMutingDetails[contacts[idx]._id];
+        return addMutingHistory(info, muted, reportId, offlineMutingDetail);
+      });
+    })
     .then(infoDocs => infodoc.bulkUpdate(infoDocs));
 };
 
@@ -126,8 +122,14 @@ const updateMutingHistory = (contact, initialReplicationDatetime, muted) => {
     });
 };
 
-const addMutingHistory = (info, muted, reportId) => {
+const addMutingHistory = (info, muted, reportId, offlineMutingDetail) => {
   info.muting_history = info.muting_history || [];
+
+  if (offlineMutingDetail && offlineMutingDetail.offline) {
+    offlineMutingDetail.offline.offline = true;
+    info.muting_history.push(offlineMutingDetail.offline);
+  }
+
   info.muting_history.push({
     muted: !!muted,
     date: muted || moment(),
@@ -161,11 +163,14 @@ const updateMuteState = (contact, muted, reportId) => {
       .reduce((promise, batch) => {
         return promise
           .then(() => getContactsAndSubjectIds(batch, muted))
-          .then(result => Promise.all([
-            updateContacts(result.contacts, muted),
-            updateRegistrations(result.subjectIds, muted),
-            updateMutingHistories(result.contacts, muted, reportId)
-          ]));
+          .then(result => {
+            const offlineMutingDetails = getOfflineMutingDetails(result.contacts);
+            return Promise.all([
+              updateContacts(result.contacts, muted),
+              updateRegistrations(result.subjectIds, muted),
+              updateMutingHistories(result.contacts, muted, reportId, offlineMutingDetails)
+            ]);
+          });
       }, Promise.resolve());
   });
 };

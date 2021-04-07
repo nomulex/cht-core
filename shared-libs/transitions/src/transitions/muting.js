@@ -36,6 +36,19 @@ const isRelevantReport = (doc, info = {}) =>
           !transitionUtils.hasRun(info, TRANSITION_NAME) &&
           utils.isValidSubmission(doc));
 
+const isNewContactWithMutedParent = (doc, infoDoc = {}) => {
+  return Boolean(
+    !doc.muted &&
+    // If initial_replication_date is 'unknown' .getTime() will return NaN, which is an
+    // acceptable value to pass to isMutedInLineage (it will mean that it won't match because
+    // there is no possible mute date that is "after" NaN)
+    mutingUtils.isMutedInLineage(doc, new Date(infoDoc.initial_replication_date).getTime()) &&
+    !infoDoc.muting_history
+  );
+};
+
+const isMutedOffline = (doc) => !!doc.muting_details;
+
 //
 // When *new* contacts are added that have muted parents, they and their schedules should be muted.
 //
@@ -43,15 +56,55 @@ const isRelevantReport = (doc, info = {}) =>
 //  - They were initially replicated *after* a mute that has happened in their parent lineage
 //  - And we haven't performed any kind of mute on them before
 //
-const isRelevantContact = (doc, infoDoc = {}) =>
-  Boolean(doc &&
-          isContact(doc) &&
-          !doc.muted &&
-          // If initial_replication_date is 'unknown' .getTime() will return NaN, which is an
-          // acceptable value to pass to isMutedInLineage (it will mean that it won't match because
-          // there is no possible mute date that is "after" NaN)
-          mutingUtils.isMutedInLineage(doc, new Date(infoDoc.initial_replication_date).getTime()) &&
-          !infoDoc.muting_history);
+const isRelevantContact = (doc, infoDoc = {}) => {
+  return Boolean(doc &&
+                 isContact(doc) &&
+                 (isNewContactWithMutedParent(doc, infoDoc) || isMutedOffline(doc))
+  );
+};
+
+const processContact = (change) => {
+  if (isRelevantContact(change.doc, change.info)) {
+    console.log('processing new contact');
+    // process new contacts as normal
+    return processNewContact(change);
+  }
+
+  return processContactMutedOffline(change);
+};
+
+const processNewContact = (change) => {
+  const muted = new Date();
+  mutingUtils.updateContact(change.doc, muted);
+  return mutingUtils
+    .updateRegistrations(utils.getSubjectIds(change.doc), muted)
+    .then(() => mutingUtils.updateMutingHistory(
+      change.doc,
+      new Date(change.info.initial_replication_date).getTime(),
+      muted
+    ))
+    .then(() => true);
+};
+
+const processContactMutedOffline = (change) => {
+  if (!change.doc.muting_details) {
+    return;
+  }
+
+  const reportId = change.doc.muting_details.offline.report_id;
+  const muted = change.doc.muted ? new Date() : undefined;
+  const mutingDetails = change.doc.muting_details;
+  mutingUtils.updateContact(change.doc);
+
+  return mutingUtils
+    .updateRegistrations(utils.getSubjectIds(change.doc), muted)
+    .then(() => mutingDetails._updateMuteHistories(
+      [change.doc],
+      muted,
+      reportId,
+      { [change.doc.id]: mutingDetails })
+    );
+};
 
 module.exports = {
   name: TRANSITION_NAME,
@@ -81,17 +134,7 @@ module.exports = {
 
   onMatch: change => {
     if (change.doc.type !== 'data_record') {
-      // process new contacts
-      const muted = new Date();
-      mutingUtils.updateContact(change.doc, muted);
-      return mutingUtils
-        .updateRegistrations(utils.getSubjectIds(change.doc), muted)
-        .then(() => mutingUtils.updateMutingHistory(
-          change.doc,
-          new Date(change.info.initial_replication_date).getTime(),
-          muted
-        ))
-        .then(() => true);
+      return processContact(change);
     }
 
     const muteState = isMuteForm(change.doc.form);
@@ -109,8 +152,9 @@ module.exports = {
           .then(contact => {
             targetContact = contact;
 
-            if (Boolean(contact.muted) === muteState) {
+            if (Boolean(contact.muted) === muteState && !contact.muting_details) {
               // don't update registrations if contact already has desired state
+              // but do process muting events that have been handled on devices
               module.exports._addMsg(contact.muted ? 'already_muted' : 'already_unmuted', change.doc);
               return;
             }
