@@ -138,7 +138,7 @@ export class MutingTransition implements Transition {
 
     if (!!contact.muted === mutedState) {
       // already in the correct state
-      return;
+      return Promise.resolve();
     }
 
     return this.updatedMuteState(contact, mutedState, report, context);
@@ -298,8 +298,8 @@ export class MutingTransition implements Transition {
     });
 
     if (hasMutingReport && hasUnmutingReport) {
-      // we have reports that mute and unmute in the same batch
-      // do something?? check if contacts are the same
+      // we have reports that mute and unmute in the same batch, so only unmute!
+      context.reports = context.reports.filter(report => this.isUnmuteForm(report));
     }
 
     return this
