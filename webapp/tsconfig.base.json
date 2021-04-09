@@ -29,7 +29,6 @@
       "@mm-reducers/*": ["src/ts/reducers/*"],
       "@mm-selectors/*": ["src/ts/selectors/*"],
       "@mm-services/*": ["src/ts/services/*"],
-      "@mm-transitions/*": ["src/ts/services/transitions/*"]
     }
   },
   "angularCompilerOptions": {

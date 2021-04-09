@@ -1,8 +1,8 @@
 import { Injectable } from '@angular/core';
 
-import { DbService } from './db.service';
-import { SettingsService } from './settings.service';
-import { MutingTransition } from './transitions/muting.transition';
+import { DbService } from '@mm-services/db.service';
+import { SettingsService } from '@mm-services/settings.service';
+import { MutingTransition } from '@mm-services/transitions/muting.transition';
 
 @Injectable({
   providedIn: 'root'

@@ -65,7 +65,6 @@ const isRelevantContact = (doc, infoDoc = {}) => {
 
 const processContact = (change) => {
   if (isRelevantContact(change.doc, change.info)) {
-    console.log('processing new contact');
     // process new contacts as normal
     return processNewContact(change);
   }
@@ -94,16 +93,17 @@ const processContactMutedOffline = (change) => {
   const reportId = change.doc.muting_details.offline.report_id;
   const muted = change.doc.muted ? new Date() : undefined;
   const mutingDetails = change.doc.muting_details;
-  mutingUtils.updateContact(change.doc);
+  mutingUtils.updateContact(change.doc, muted);
 
   return mutingUtils
     .updateRegistrations(utils.getSubjectIds(change.doc), muted)
-    .then(() => mutingDetails._updateMuteHistories(
+    .then(() => mutingUtils._updateMuteHistories(
       [change.doc],
       muted,
       reportId,
-      { [change.doc.id]: mutingDetails })
-    );
+      { [change.doc._id]: mutingDetails })
+    )
+    .then(() => true);
 };
 
 module.exports = {

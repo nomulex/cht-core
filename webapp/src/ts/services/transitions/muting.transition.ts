@@ -2,16 +2,16 @@ import { Injectable } from '@angular/core';
 import { cloneDeep } from 'lodash-es';
 
 import * as registrationUtils from '@medic/registration-utils';
-import { DbService } from '../db.service';
-import { LineageModelGeneratorService } from '../lineage-model-generator.service';
-import { ContactMutedService } from '../contact-muted.service';
-import { ContactTypesService } from '../contact-types.service';
-import { Transition } from './transition';
+import { DbService } from '@mm-services/db.service';
+import { LineageModelGeneratorService } from '@mm-services/lineage-model-generator.service';
+import { ContactMutedService } from '@mm-services/contact-muted.service';
+import { ContactTypesService } from '@mm-services/contact-types.service';
+import { TransitionInterface } from '@mm-services/transitions/transition';
 
 @Injectable({
   providedIn: 'root'
 })
-export class MutingTransition implements Transition {
+export class MutingTransition implements TransitionInterface {
   constructor(
     private dbService:DbService,
     private lineageModelGeneratorService:LineageModelGeneratorService,
@@ -108,12 +108,31 @@ export class MutingTransition implements Transition {
     return this.lineageModelGeneratorService.docs(clones);
   }
 
+  private hydrateContacts(context) {
+    return this.lineageModelGeneratorService.docs(context.contacts).then(hydratedContactsArray => {
+      context.hydratedContacts = {};
+      hydratedContactsArray.forEach(contact => context.hydratedContacts[contact._id] = contact);
+
+      Object.keys(context.hydratedContacts).forEach(contactId => {
+        let parent:any = context.hydratedContacts[contactId];
+        while (parent) {
+          context.flattenedHydratedContactsById[parent._id] = parent;
+          parent = parent.parent;
+        }
+      });
+    });
+  }
+
+
   private getContact(report, context) {
     let contact = report.patient || report.place;
     if (!contact) {
-      // the report can be about a patient that we're just now creating
+      // the report can be about a patient or place that we're just now creating
       const subjectIds = registrationUtils.getSubjectIds(report);
-      contact = context.contacts.find(contact => subjectIds.includes(contact._id));
+      const contactId = Object.keys(context.hydratedContacts).find(contactId => subjectIds.includes(contactId));
+      if (contactId) {
+        contact = context.hydratedContacts[contactId];
+      }
     }
 
     return contact;
@@ -156,33 +175,47 @@ export class MutingTransition implements Transition {
       }
     }
 
-    return this.getContactsToProcess(rootContactId, context).then(contacts => {
-      contacts.forEach(contactToUpdate => {
-        const alreadyEditedContact = context.docs.find(doc => doc._id === contactToUpdate._id);
-        if (alreadyEditedContact) {
-          this.processContact(alreadyEditedContact, muted, report._id, context);
+    return this.getContactsToProcess(contact, rootContactId, context).then(contactsToProcess => {
+      contactsToProcess.forEach(contactToProcess => {
+        const knownContact = context.docs.find(doc => doc._id === contactToProcess._id);
+        if (knownContact) {
+          this.processContact(knownContact, muted, report._id, context);
           return;
         }
 
-        this.processContact(contactToUpdate, muted, report._id, context);
-        context.docs.push(contactToUpdate);
+        this.processContact(contactToProcess, muted, report._id, context);
+        context.docs.push(contactToProcess);
       });
     });
   }
 
-  private getContactsToProcess(contactId, context) {
-    // get descendents
+  private getRootContact(rootContactId, context) {
+    const knownRootContact = context.docs.find(doc => doc._id === rootContactId);
+    if (knownRootContact) {
+      return Promise.resolve(knownRootContact);
+    }
+
+    return this.dbService.get().get(rootContactId);
+  }
+
+  private getDescendents(rootContactId) {
     return this.dbService
       .get()
-      .query('medic-client/contacts_by_place', { key: [contactId], include_docs: true })
-      .then(results => {
-        const descendents = results.rows.map(row => row.doc);
-        const found = descendents.find(contact => contact._id === contactId) ||
-                      context.docs.find(contact => contact._id === contactId);
-        if (!found) {
-          return this.dbService.get().get(contactId).then(doc => {
-            return descendents.concat(doc);
-          });
+      .query('medic-client/contacts_by_place', { key: [rootContactId], include_docs: true })
+      .then(results => results.rows.map(row => row.doc));
+  }
+
+  private getContactsToProcess(contact, rootContactId, context) {
+    return Promise
+      .all([
+        this.getDescendents(rootContactId),
+        this.getRootContact(rootContactId, context),
+      ])
+      .then(([descendents, rootContact]) => {
+        descendents.push(rootContact);
+        const foundContact = descendents.find(descendent => descendent._id === contact._id);
+        if (!foundContact) {
+          descendents.push(contact);
         }
 
         return descendents;
@@ -190,6 +223,21 @@ export class MutingTransition implements Transition {
   }
 
   private processContacts(context) {
+    if (!context.contacts.length) {
+      return Promise.resolve();
+    }
+
+    context.contacts.forEach(contact => {
+      const hydratedContact = context.hydratedContacts[contact._id];
+      const mutedParent = this.contactMutedService.getMutedParent(hydratedContact);
+      if (mutedParent) {
+        const reportId = mutedParent.muting_details?.offline.report_id;
+        this.processContact(contact, true, reportId, context);
+      }
+    });
+  }
+
+  /*private processContacts(context) {
     if (!context.contacts.length) {
       return Promise.resolve();
     }
@@ -245,7 +293,7 @@ export class MutingTransition implements Transition {
         }
       });
     });
-  }
+  }*/
 
   private processContact(contact, muted, reportId, context) {
     if (!contact.muting_details) {
@@ -269,6 +317,12 @@ export class MutingTransition implements Transition {
     } else {
       delete contact.muted;
     }
+
+    // consolidate muted state in flattenedHydratedContactsById
+    if (context.flattenedHydratedContactsById[contact._id]) {
+      context.flattenedHydratedContactsById[contact._id].muted = contact.muted;
+      context.flattenedHydratedContactsById[contact._id].muting_details = contact.muting_details;
+    }
   }
 
   onMatch(docs) {
@@ -276,6 +330,8 @@ export class MutingTransition implements Transition {
       docs,
       reports: [],
       contacts: [],
+      hydratedContacts: {},
+      flattenedHydratedContactsById: {},
       mutedTimestamp: new Date().toISOString(),
     };
 
@@ -303,7 +359,8 @@ export class MutingTransition implements Transition {
     }
 
     return this
-      .processReports(context)
+      .hydrateContacts(context)
+      .then(() => this.processReports(context))
       .then(() => this.processContacts(context))
       .then(() => context.docs);
   }
