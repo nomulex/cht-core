@@ -51,7 +51,7 @@ const updateContact = (contact, muted) => {
   } else {
     delete contact.muted;
   }
-  delete contact.muting_details;
+  delete contact.muting_history;
 
   return contact;
 };
@@ -122,12 +122,14 @@ const updateMutingHistory = (contact, initialReplicationDatetime, muted) => {
     });
 };
 
-const addMutingHistory = (info, muted, reportId, offlineMutingDetail) => {
+const addMutingHistory = (info, muted, reportId, offlineMutingHistory) => {
   info.muting_history = info.muting_history || [];
 
-  if (offlineMutingDetail && offlineMutingDetail.offline) {
-    offlineMutingDetail.offline.offline = true;
-    info.muting_history.push(offlineMutingDetail.offline);
+  if (offlineMutingHistory && offlineMutingHistory.offline) {
+    offlineMutingHistory.offline.forEach(mutingEvent => {
+      mutingEvent.offline = true;
+      info.muting_history.push(mutingEvent.offline);
+    });
   }
 
   info.muting_history.push({
@@ -168,7 +170,7 @@ const updateMuteState = (contact, muted, reportId) => {
             return Promise.all([
               updateContacts(result.contacts, muted),
               updateRegistrations(result.subjectIds, muted),
-              updateMutingHistories(result.contacts, muted, reportId, offlineMutingDetails)
+              updateMutingHistories(result.contacts, muted, reportId, offlineMutingDetails),
             ]);
           });
       }, Promise.resolve());

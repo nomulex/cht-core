@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { cloneDeep } from 'lodash-es';
 
 import * as registrationUtils from '@medic/registration-utils';
+import * as validation from '@medic/validation';
 import { DbService } from '@mm-services/db.service';
 import { LineageModelGeneratorService } from '@mm-services/lineage-model-generator.service';
 import { ContactMutedService } from '@mm-services/contact-muted.service';
@@ -46,6 +47,8 @@ export class MutingTransition implements TransitionInterface {
       );
       return false;
     }
+    const translate = (key) => key;
+    validation.init({ settings, db: { medic: this.dbService.get() }, translate, logger: console });
     return true;
   }
 
@@ -108,23 +111,29 @@ export class MutingTransition implements TransitionInterface {
     return this.lineageModelGeneratorService.docs(clones);
   }
 
-  private hydrateContacts(context) {
-    return this.lineageModelGeneratorService.docs(context.contacts).then(hydratedContactsArray => {
-      context.hydratedContacts = {};
-      hydratedContactsArray.forEach(contact => context.hydratedContacts[contact._id] = contact);
+  private async hydrateContacts(context) {
+    const hydratedContactsArray = this.lineageModelGeneratorService.docs(context.contacts);
 
-      Object.keys(context.hydratedContacts).forEach(contactId => {
-        let parent:any = context.hydratedContacts[contactId];
-        while (parent) {
-          context.flattenedHydratedContactsById[parent._id] = parent;
-          parent = parent.parent;
-        }
-      });
+    context.hydratedContacts = {};
+    hydratedContactsArray.forEach(contact => context.hydratedContacts[contact._id] = contact);
+
+    Object.keys(context.hydratedContacts).forEach(contactId => {
+      let parent:any = context.hydratedContacts[contactId];
+      while (parent) {
+        context.flattenedHydratedContactsById[parent._id] = parent;
+        parent = parent.parent;
+      }
     });
   }
 
+  private async isValid(report) {
+    const validations = this.SETTINGS.validations?.list;
+    const errors = await validation.validate(report, validations);
+    // todo add the errors on the doc?
+    return !errors || !errors.length;
+  }
 
-  private getContact(report, context) {
+  private getSubject(report, context) {
     let contact = report.patient || report.place;
     if (!contact) {
       // the report can be about a patient or place that we're just now creating
@@ -138,32 +147,30 @@ export class MutingTransition implements TransitionInterface {
     return contact;
   }
 
-  private processReports(context) {
-    return this.hydrateReports(context.reports).then(hydratedReports => {
-      let promiseChain = Promise.resolve();
-      hydratedReports.forEach(report => {
-        promiseChain = promiseChain.then(() => this.processReport(report, context));
-      });
-      return promiseChain;
-    });
+  private async processReports(context) {
+    const hydratedReports = await this.hydrateReports(context.reports);
+
+    for (const hydratedReport of hydratedReports) {
+      const originalReport = context.reports.find(report => hydratedReport._id === report._id);
+      await this.processReport(originalReport, hydratedReport, context);
+    }
   }
 
-  private processReport(report, context) {
+  private processReport(report, hydratedReport, context) {
     const mutedState = this.isMuteForm(report.form);
-    const contact = this.getContact(report, context);
-    if (!contact) {
-      return;
-    }
-
-    if (!!contact.muted === mutedState) {
-      // already in the correct state
+    const subject = this.getSubject(hydratedReport, context);
+    if (!subject || !!subject.muted === mutedState) {
+      // no subject or already in the correct state
       return Promise.resolve();
     }
 
-    return this.updatedMuteState(contact, mutedState, report, context);
+    report.offline_transitions = report.offline_transitions || {};
+    report.offline_transitions.muting = true;
+
+    return this.updatedMuteState(subject, mutedState, report, context);
   }
 
-  private updatedMuteState(contact, muted, report, context) {
+  private async updatedMuteState(contact, muted, report, context) {
     let rootContactId;
 
     rootContactId = contact._id;
@@ -175,17 +182,16 @@ export class MutingTransition implements TransitionInterface {
       }
     }
 
-    return this.getContactsToProcess(contact, rootContactId, context).then(contactsToProcess => {
-      contactsToProcess.forEach(contactToProcess => {
-        const knownContact = context.docs.find(doc => doc._id === contactToProcess._id);
-        if (knownContact) {
-          this.processContact(knownContact, muted, report._id, context);
-          return;
-        }
+    const contactsToProcess = await this.getContactsToProcess(contact, rootContactId, context);
+    contactsToProcess.forEach(contactToProcess => {
+      const knownContact = context.docs.find(doc => doc._id === contactToProcess._id);
+      if (knownContact) {
+        this.processContact(knownContact, muted, report._id, context);
+        return;
+      }
 
-        this.processContact(contactToProcess, muted, report._id, context);
-        context.docs.push(contactToProcess);
-      });
+      this.processContact(contactToProcess, muted, report._id, context);
+      context.docs.push(contactToProcess);
     });
   }
 
@@ -198,28 +204,25 @@ export class MutingTransition implements TransitionInterface {
     return this.dbService.get().get(rootContactId);
   }
 
-  private getDescendents(rootContactId) {
-    return this.dbService
+  private async getDescendents(rootContactId) {
+    const results = await this.dbService
       .get()
-      .query('medic-client/contacts_by_place', { key: [rootContactId], include_docs: true })
-      .then(results => results.rows.map(row => row.doc));
+      .query('medic-client/contacts_by_place', { key: [rootContactId], include_docs: true });
+
+    return results.rows.map(row => row.doc);
   }
 
-  private getContactsToProcess(contact, rootContactId, context) {
-    return Promise
-      .all([
-        this.getDescendents(rootContactId),
-        this.getRootContact(rootContactId, context),
-      ])
-      .then(([descendents, rootContact]) => {
-        descendents.push(rootContact);
-        const foundContact = descendents.find(descendent => descendent._id === contact._id);
-        if (!foundContact) {
-          descendents.push(contact);
-        }
+  private async getContactsToProcess(contact, rootContactId, context) {
+    const descendents = await this.getDescendents(rootContactId);
+    const rootContact = await this.getRootContact(rootContactId, context);
 
-        return descendents;
-      });
+    descendents.push(rootContact);
+    const foundContact = descendents.find(descendent => descendent._id === contact._id);
+    if (!foundContact) {
+      descendents.push(contact);
+    }
+
+    return descendents;
   }
 
   private processContacts(context) {
@@ -231,86 +234,29 @@ export class MutingTransition implements TransitionInterface {
       const hydratedContact = context.hydratedContacts[contact._id];
       const mutedParent = this.contactMutedService.getMutedParent(hydratedContact);
       if (mutedParent) {
-        const reportId = mutedParent.muting_details?.offline.report_id;
+        const reportId = mutedParent.muting_history?.offline?.slice(-1)[0]?.report_id;
         this.processContact(contact, true, reportId, context);
       }
     });
   }
 
-  /*private processContacts(context) {
-    if (!context.contacts.length) {
-      return Promise.resolve();
-    }
-
-    const parentIds = [];
-    const contactIds = context.contacts.map(contact => contact._id);
-    const getParentId = contact => contact.parent?._id;
-    const getIdsInLineage = contact => {
-      const idsInLineage = [];
-      let parent = contact.parent;
-      while (parent) {
-        idsInLineage.push(parent._id);
-        parent = parent.parent;
-      }
-      return idsInLineage;
-    };
-
-    context.contacts.forEach(contact => {
-      const parentId = getParentId(contact);
-      if (parentId && !contactIds.includes(parentId)) {
-        // don't try to hydrate fresh contacts
-        parentIds.push(parentId);
-      }
-    });
-
-    const knownMutedContacts = [];
-    context.docs.forEach(doc => {
-      if (!this.contactTypesService.includes(doc)) {
-        return;
-      }
-      if (!this.contactMutedService.getMuted(doc)) {
-        const index = parentIds.indexOf(doc._id);
-        if (index >= 0) {
-          parentIds.splice(index, 1);
-        }
-      } else {
-        knownMutedContacts.push(doc);
-      }
-    });
-
-    return this.lineageModelGeneratorService.ids(parentIds).then(hydratedParents => {
-      knownMutedContacts.push(...hydratedParents.filter(parent => this.contactMutedService.getMuted(parent)));
-      if (!knownMutedContacts.length) {
-        return;
-      }
-
-      context.contacts.forEach(contact => {
-        const idsInLineage = getIdsInLineage(contact);
-        const mutedParent = knownMutedContacts.find(mutedParent => idsInLineage.includes(mutedParent._id));
-        if (mutedParent) {
-          const reportId = mutedParent.muting_details?.offline.report_id;
-          this.processContact(contact, true, reportId, context);
-        }
-      });
-    });
-  }*/
-
   private processContact(contact, muted, reportId, context) {
-    if (!contact.muting_details) {
+    if (!contact.muting_history) {
       // store "online" state when first processing this doc offline
-      contact.muting_details = {
+      contact.muting_history = {
         online: {
           muted: !!contact.muted,
           date: contact.muted,
-        }
+        },
+        offline: [],
       };
     }
 
-    contact.muting_details.offline = {
+    contact.muting_history.offline.push({
       muted: muted,
       date: context.mutedTimestamp,
       report_id: reportId,
-    };
+    });
 
     if (muted) {
       contact.muted = context.mutedTimestamp;
@@ -321,11 +267,11 @@ export class MutingTransition implements TransitionInterface {
     // consolidate muted state in flattenedHydratedContactsById
     if (context.flattenedHydratedContactsById[contact._id]) {
       context.flattenedHydratedContactsById[contact._id].muted = contact.muted;
-      context.flattenedHydratedContactsById[contact._id].muting_details = contact.muting_details;
+      context.flattenedHydratedContactsById[contact._id].muting_history = contact.muting_history;
     }
   }
 
-  onMatch(docs) {
+  async onMatch(docs) {
     const context = {
       docs,
       reports: [],
@@ -338,8 +284,18 @@ export class MutingTransition implements TransitionInterface {
     let hasMutingReport;
     let hasUnmutingReport;
 
-    docs.forEach(doc => {
+    for (const doc of docs) {
+      if (this.isRelevantContact(doc)) {
+        context.contacts.push(doc);
+        return;
+      }
+
       if (this.isRelevantReport(doc)) {
+        const valid = await this.isValid(doc);
+        if (!valid) {
+          return;
+        }
+
         if (this.isMuteForm(doc.form)) {
           hasMutingReport = true;
         } else {
@@ -347,22 +303,18 @@ export class MutingTransition implements TransitionInterface {
         }
         context.reports.push(doc);
       }
-
-      if (this.isRelevantContact(doc)) {
-        context.contacts.push(doc);
-      }
-    });
+    }
 
     if (hasMutingReport && hasUnmutingReport) {
       // we have reports that mute and unmute in the same batch, so only unmute!
       context.reports = context.reports.filter(report => this.isUnmuteForm(report));
     }
 
-    return this
-      .hydrateContacts(context)
-      .then(() => this.processReports(context))
-      .then(() => this.processContacts(context))
-      .then(() => context.docs);
+    await this.hydrateContacts(context);
+    await this.processReports(context);
+    await this.processContacts(context);
+
+    return docs;
   }
 }
 

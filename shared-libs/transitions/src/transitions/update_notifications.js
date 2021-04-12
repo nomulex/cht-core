@@ -2,7 +2,6 @@ const _ = require('lodash');
 const config = require('../config');
 const utils = require('../lib/utils');
 const messages = require('../lib/messages');
-const validation = require('../lib/validation');
 const transitionUtils = require('./utils');
 const mutingUtils = require('../lib/muting_utils');
 const logger = require('../lib/logger');
@@ -77,54 +76,48 @@ module.exports = {
   getConfig: function() {
     return Object.assign({}, config.get('notifications'));
   },
-  validate: function(config, doc, callback) {
-    const validations = config.validations && config.validations.list;
-    return validation.validate(doc, validations, callback);
-  },
   onMatch: change => {
-    return new Promise((resolve, reject) => {
-      const self = module.exports;
-      const doc = change.doc;
-      const config = module.exports.getConfig();
-      const eventType = getEventType(config, doc);
-      let patient;
+    const self = module.exports;
+    const doc = change.doc;
+    const config = module.exports.getConfig();
+    const eventType = getEventType(config, doc);
+    let patient;
 
-      if (!eventType) {
-        return resolve();
+    if (!eventType) {
+      return Promise.resolve();
+    }
+
+    return transitionUtils.validate(config, doc).then(errors => {
+      if (errors && errors.length > 0) {
+        messages.addErrors(config, doc, errors, { patient: doc.patient });
+        return true;
       }
 
-      self.validate(config, doc, function(errors) {
-        if (errors && errors.length > 0) {
-          messages.addErrors(config, doc, errors, { patient: doc.patient });
-          return resolve(true);
-        }
+      return mutingUtils
+        .getContact(change.doc)
+        .then(contact => {
+          patient = contact;
 
-        mutingUtils
-          .getContact(change.doc)
-          .then(contact => {
-            patient = contact;
+          if (Boolean(contact.muted) === eventType.mute) {
+            // don't update registrations if contact already has desired state
+            return;
+          }
 
-            if (Boolean(contact.muted) === eventType.mute) {
-              // don't update registrations if contact already has desired state
-              return;
-            }
+          return mutingUtils.updateMuteState(contact, eventType.mute, change.id);
+        })
+        .then(() => {
+          self._addMsg(getEventName(eventType), config, doc, [], patient);
+          return true;
+        })
+        .catch(err => {
+          if (err && err.message === 'contact_not_found') {
+            self._addErr('patient_not_found', config, doc);
+            self._addMsg('patient_not_found', config, doc);
+            return true;
+          }
 
-            return mutingUtils.updateMuteState(contact, eventType.mute, change.id);
-          })
-          .then(() => {
-            self._addMsg(getEventName(eventType), config, doc, [], patient);
-            resolve(true);
-          })
-          .catch(err => {
-            if (err && err.message === 'contact_not_found') {
-              self._addErr('patient_not_found', config, doc);
-              self._addMsg('patient_not_found', config, doc);
-              return resolve(true);
-            }
-
-            reject(err);
-          });
-      });
+          return Promise.reject(err);
+        });
     });
   }
 };

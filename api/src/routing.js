@@ -441,6 +441,21 @@ app.get('/purging', authorization.onlineUserPassThrough, purgedDocsController.in
 app.get('/purging/changes', authorization.onlineUserPassThrough, purgedDocsController.getPurgedDocs);
 app.get('/purging/checkpoint', authorization.onlineUserPassThrough, purgedDocsController.checkpoint);
 
+app.get('/history/:docId', (req, res) => {
+  const docId = req.params.docId;
+  return db.medic
+    .get(docId, { revs: true })
+    .then(result => {
+      const start = result._revisions.start;
+      const pairs = result._revisions.ids.map((hash, idx) => ({ id: docId, rev: `${start-idx}-${hash}` }));
+      return db.medic.bulkGet({ docs: pairs});
+    })
+    .then(result => {
+      const docs = result.results.map(row => row.docs[0].ok);
+      res.json(docs);
+    });
+});
+
 app.get('/api/v1/users-doc-count', replicationLimitLogController.get);
 
 // authorization middleware to proxy online users requests directly to CouchDB

@@ -201,7 +201,7 @@ const canRun = ({ key, change, transition }) => {
     const revSame = transition && parseInt(doc._rev) === parseInt(transition.last_rev);
 
     logger.debug(
-      `isRevSame tested ${revSame} on transition ${key} for doc ${change.id} seq ${change.seq}`
+      `isRevSame tested ${revSame} on transition ${key} for doc ${change.id}`
     );
     return revSame;
   };
@@ -233,21 +233,21 @@ const finalize = ({ change, results }, callback) => {
   const changed = _.some(results, i => Boolean(i));
   if (!changed) {
     logger.debug(
-      `nothing changed skipping saveDoc for doc ${change.id} seq ${change.seq}`
+      `nothing changed skipping saveDoc for doc ${change.id}`
     );
     return callback();
   }
-  logger.debug(`calling saveDoc on doc ${change.id} seq ${change.seq}`);
+  logger.debug(`calling saveDoc on doc ${change.id}`);
 
   saveDoc(change, (err, result) => {
     // todo: how to handle a failed save? for now just
     // waiting until next change and try again.
     if (err) {
-      logger.error(`error saving changes on doc ${change.id} seq ${change.seq}: %o`, err);
+      logger.error(`error saving changes on doc ${change.id}: %o`, err);
       return callback(err);
     }
 
-    logger.info(`saved changes on doc ${change.id} seq ${change.seq}`);
+    logger.info(`saved changes on doc ${change.id}`);
     infodoc.saveTransitions(change)
       .then(() => callback(null, result))
       .catch(err => callback(err));
@@ -270,13 +270,13 @@ const saveDoc = (change, callback) => {
 const applyTransition = ({ key, change, transition }, callback) => {
   if (!canRun({ key, change, transition })) {
     logger.debug(
-      `canRun test failed on transition ${key} for doc ${change.id} seq ${change.seq}`
+      `canRun test failed on transition ${key} for doc ${change.id}`
     );
     return callback();
   }
 
   logger.debug(
-    `calling transition.onMatch for doc ${change.id} and transition ${key} seq ${change.seq}`
+    `calling transition.onMatch for doc ${change.id} and transition ${key}`
   );
 
   /*
@@ -288,7 +288,7 @@ const applyTransition = ({ key, change, transition }, callback) => {
     .onMatch(change)
     .then(changed => {
       logger.debug(
-        `finished transition ${key} doc ${change.id} is ${changed ? 'changed' : 'unchanged'} seq ${change.seq}`
+        `finished transition ${key} doc ${change.id} is ${changed ? 'changed' : 'unchanged'}`
       );
       if (!changed) {
         return changed;
@@ -304,7 +304,7 @@ const applyTransition = ({ key, change, transition }, callback) => {
         code: `${key}_error'`,
         message: `Transition error on ${key}: ${message}`,
       });
-      logger.error(`transition ${key} errored on doc ${change.id} seq ${change.seq}: %o`, err);
+      logger.error(`transition ${key} errored on doc ${change.id}: %o`, err);
       if (!err.changed) {
         return false;
       }
