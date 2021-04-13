@@ -40,6 +40,10 @@ export class MutingTransition implements TransitionInterface {
 
   init(settings) {
     this.getSettings(settings);
+    if (!this.SETTINGS.offline_muting) {
+      return false;
+    }
+
     const mutingForms = this.getMutingForms();
     if (!mutingForms || !Array.isArray(mutingForms) || !mutingForms.length) {
       console.warn(
@@ -112,7 +116,7 @@ export class MutingTransition implements TransitionInterface {
   }
 
   private async hydrateContacts(context) {
-    const hydratedContactsArray = this.lineageModelGeneratorService.docs(context.contacts);
+    const hydratedContactsArray = await this.lineageModelGeneratorService.docs(context.contacts);
 
     context.hydratedContacts = {};
     hydratedContactsArray.forEach(contact => context.hydratedContacts[contact._id] = contact);
@@ -232,9 +236,12 @@ export class MutingTransition implements TransitionInterface {
 
     context.contacts.forEach(contact => {
       const hydratedContact = context.hydratedContacts[contact._id];
+      console.warn(hydratedContact);
+      // todo check if this works
       const mutedParent = this.contactMutedService.getMutedParent(hydratedContact);
       if (mutedParent) {
-        const reportId = mutedParent.muting_history?.offline?.slice(-1)[0]?.report_id;
+        const flattenedMutedParent = context.flattenedHydratedContactsById[mutedParent._id];
+        const reportId = flattenedMutedParent.muting_history?.offline?.slice(-1)[0]?.report_id;
         this.processContact(contact, true, reportId, context);
       }
     });
@@ -249,6 +256,7 @@ export class MutingTransition implements TransitionInterface {
           date: contact.muted,
         },
         offline: [],
+        last_update: 'offline',
       };
     }
 
@@ -287,13 +295,13 @@ export class MutingTransition implements TransitionInterface {
     for (const doc of docs) {
       if (this.isRelevantContact(doc)) {
         context.contacts.push(doc);
-        return;
+        continue;
       }
 
       if (this.isRelevantReport(doc)) {
         const valid = await this.isValid(doc);
         if (!valid) {
-          return;
+          continue;
         }
 
         if (this.isMuteForm(doc.form)) {
@@ -309,6 +317,8 @@ export class MutingTransition implements TransitionInterface {
       // we have reports that mute and unmute in the same batch, so only unmute!
       context.reports = context.reports.filter(report => this.isUnmuteForm(report));
     }
+
+    console.log('muting context', context);
 
     await this.hydrateContacts(context);
     await this.processReports(context);

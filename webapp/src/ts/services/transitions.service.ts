@@ -3,6 +3,7 @@ import { Injectable } from '@angular/core';
 import { DbService } from '@mm-services/db.service';
 import { SettingsService } from '@mm-services/settings.service';
 import { MutingTransition } from '@mm-services/transitions/muting.transition';
+import { transition } from '@angular/animations';
 
 @Injectable({
   providedIn: 'root'
@@ -70,9 +71,11 @@ export class TransitionsService {
     let promiseChain = Promise.resolve();
     this.loadedTransitions.forEach(loadedTransition => {
       if (!loadedTransition.transition.filter(docs)) {
+        console.log('transition', loadedTransition.name, 'filter failed for docs');
         return;
       }
 
+      console.log('running', loadedTransition.name, 'over', docs);
       promiseChain = promiseChain.then(() => loadedTransition.transition.onMatch(docs));
     });
     return promiseChain.then(() => docs);

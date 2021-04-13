@@ -48,7 +48,7 @@ const isNewContactWithMutedParent = (doc, infoDoc = {}) => {
   );
 };
 
-const isMutedOffline = (doc) => !!doc.muting_history;
+const isMutedOffline = (doc) => doc.muting_history && doc.muting_history.last_update === 'offline';
 
 //
 // When *new* contacts are added that have muted parents, they and their schedules should be muted.
@@ -65,17 +65,8 @@ const isRelevantContact = (doc, infoDoc = {}) => {
 };
 
 const processContact = (change) => {
-  if (isNewContactWithMutedParent(change.doc, change.info)) {
-    // process new contacts as normal
-    return processNewContact(change);
-  }
-
-  return processContactMutedOffline(change);
-};
-
-const processNewContact = (change) => {
+  // todo when processing locally muted contacts, we're not always muting!!!
   const muted = new Date();
-  mutingUtils.updateContact(change.doc, muted);
   return mutingUtils
     .updateRegistrations(utils.getSubjectIds(change.doc), muted)
     .then(() => mutingUtils.updateMutingHistory(
@@ -83,31 +74,46 @@ const processNewContact = (change) => {
       new Date(change.info.initial_replication_date).getTime(),
       muted
     ))
-    .then(() => true);
+    .then(() => {
+      mutingUtils.updateContact(change.doc, muted);
+      return true;
+    });
 };
 
-const processContactMutedOffline = (change) => {
-  if (!change.doc.muting_history) {
-    return;
+const processNextReports = (change, nextReports) => {
+  if (!nextReports.length) {
+    return Promise.resolve();
   }
 
-  /* const reportId = change.doc.muting_history.offline.report_id;
-  const muted = change.doc.muted ? new Date() : undefined;
-  if (muted) {
-    console.log('muting', change.doc);
-  }
-  const mutingDetails = change.doc.muting_history;
-  mutingUtils.updateContact(change.doc, muted);
+  const ids = nextReports.map(nextReport => nextReport.report_id);
+  return mutingUtils.db.medic
+    .allDocs({ keys: ids, include_docs: true })
+    .then(results => {
+      // exclude docs that have not been synced, have been deleted or are no longer muting reports
+      // we re-run muting on these docs even if the transition already ran
+      const reportDocs = results.rows
+        .map(row => row.doc)
+        .filter(doc => !!doc && isRelevantReport(doc, {}));
+      return mutingUtils.lineage.hydrateDocs(reportDocs);
+    })
+    .then(hydratedReports => {
+      let promiseChain = Promise.resolve();
+      hydratedReports.forEach(hydratedReport => {
+        promiseChain = promiseChain.then(() => processNextReport(hydratedReport));
+      });
+      return promiseChain;
+    });
+};
 
-  return mutingUtils
-    .updateRegistrations(utils.getSubjectIds(change.doc), muted)
-    .then(() => mutingUtils._updateMuteHistories(
-      [change.doc],
-      muted,
-      reportId,
-      { [change.doc._id]: mutingDetails })
-    )
-    .then(() => true);*/
+const processNextReport = hydratedReport => {
+  const change = { doc: hydratedReport, id: hydratedReport._id };
+  return mutingUtils.infodoc
+    .get(change)
+    .then(info => {
+      change.info = info;
+      return module.exports.onMatch(change);
+    })
+    .then(() => mutingUtils.infodoc.updateTransition(change, TRANSITION_NAME, true));
 };
 
 module.exports = {
@@ -142,7 +148,7 @@ module.exports = {
     }
 
     const muteState = isMuteForm(change.doc.form);
-    let targetContact;
+    const contact = mutingUtils.getContact(change.doc);
 
     return module.exports
       .validate(change.doc)
@@ -151,31 +157,26 @@ module.exports = {
           return;
         }
 
-        return mutingUtils
-          .getContact(change.doc)
-          .then(contact => {
-            targetContact = contact;
-
-            if (Boolean(contact.muted) === muteState && !contact.muting_history) {
-              // don't update registrations if contact already has desired state
-              // but do process muting events that have been handled on devices
-              module.exports._addMsg(contact.muted ? 'already_muted' : 'already_unmuted', change.doc);
-              return;
-            }
-
-            return mutingUtils.updateMuteState(contact, muteState, change.id);
-          });
-      })
-      .then(changed => changed && module.exports._addMsg(getEventType(muteState), change.doc, targetContact))
-      .catch(err => {
-        if (err && err.message === 'contact_not_found') {
+        if (!contact) {
           module.exports._addErr('contact_not_found', change.doc);
           module.exports._addMsg('contact_not_found', change.doc);
           return;
         }
 
-        throw(err);
+        if (Boolean(contact.muted) === muteState && !contact.muting_history) {
+          // don't update registrations if contact already has desired state
+          // but do process muting events that have been handled on devices
+          module.exports._addMsg(contact.muted ? 'already_muted' : 'already_unmuted', change.doc);
+          return;
+        }
+
+        const getNextReports = change.doc.offline_transitions && change.doc.offline_transitions[TRANSITION_NAME];
+        return mutingUtils
+          .updateMuteState(contact, muteState, change.id, getNextReports)
+          .then(nextReports => processNextReports(change, nextReports))
+          .then(() => true);
       })
+      .then(changed => changed && module.exports._addMsg(getEventType(muteState), change.doc, contact))
       .then(() => true);
   },
   _addMsg: function(eventType, doc, contact) {
