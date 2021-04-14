@@ -686,19 +686,353 @@ describe('mutingUtils', () => {
     });
 
     it('should return empty array when no offline muting happened', () => {
+      const reportId = 'reportid';
+      const hydratedPlace = {
+        _id: 'my-place',
+        muted: true,
+        parent: {
+          _id: 'p1',
+          parent: {
+            _id: 'p2',
+            muted: true,
+            parent: {
+              _id: 'p3'
+            }
+          }
+        }
+      };
 
+      const contacts = [
+        { _id: 'p2', muted: 123 },
+        { _id: 'p1', muted: 456 },
+        { _id: 'my-place', muted: true },
+        { _id: 'contact1', muted: true, patient_id: 'patient1' },
+        { _id: 'contact2', muted: true, patient_id: 'patient2' }
+      ];
+
+      db.medic.query.resolves({ rows: contacts.map(contact => ({ id: contact._id, value: contact.patient_id })) });
+      db.medic.allDocs.resolves({ rows: contacts.map(doc => ({ id: doc._id, doc: doc }))});
+      utils.getReportsBySubject.resolves([]);
+      db.medic.bulkDocs.resolves();
+      sinon.stub(infodoc, 'bulkGet').resolves([]);
+      sinon.stub(infodoc, 'bulkUpdate').resolves();
+
+      return mutingUtils.updateMuteState(hydratedPlace, false, reportId, true).then(result => {
+        chai.expect(result).to.deep.equal([]);
+
+        chai.expect(db.medic.bulkDocs.callCount).to.equal(1);
+        chai.expect(db.medic.bulkDocs.args[0]).to.deep.equal([[
+          { _id: 'p2' },
+          { _id: 'p1' },
+          { _id: 'my-place' },
+          { _id: 'contact1', patient_id: 'patient1' },
+          { _id: 'contact2', patient_id: 'patient2' }
+        ]]);
+
+        chai.expect(db.medic.query.callCount).to.equal(1);
+        chai.expect(db.medic.query.args[0]).to.deep.equal(['medic/contacts_by_depth', { key: ['p2'] }]);
+
+        chai.expect(db.medic.allDocs.callCount).to.equal(1);
+        chai.expect(db.medic.allDocs.args[0]).to.deep.equal([{
+          keys: [ 'p2', 'p1', 'my-place', 'contact1', 'contact2' ],
+          include_docs: true
+        }]);
+
+        chai.expect(utils.getReportsBySubject.callCount).to.equal(1);
+        chai.expect(utils.getReportsBySubject.args[0]).to.deep.equal([{
+          ids: [ 'p2', 'p1', 'my-place', 'contact1', 'patient1', 'contact2', 'patient2' ],
+          registrations: true
+        }]);
+
+        chai.expect(infodoc.bulkGet.callCount).to.equal(1);
+        chai.expect(infodoc.bulkGet.args[0]).to.deep.equal([[
+          { id: 'p2', doc: { _id: 'p2' } },
+          { id: 'p1', doc: { _id: 'p1' } },
+          { id: 'my-place', doc: {_id: 'my-place'} },
+          { id: 'contact1', doc: {_id: 'contact1', patient_id: 'patient1'} },
+          { id: 'contact2', doc: {_id: 'contact2', patient_id: 'patient2'} }
+        ]]);
+        chai.expect(infodoc.bulkUpdate.callCount).to.equal(1);
+      });
     });
 
     it('should return empty array when report was not processed offline for any contact', () => {
+      const reportId = 'reportid';
+      const hydratedPlace = {
+        _id: 'my-place',
+        muted: true,
+        parent: {
+          _id: 'p1',
+          parent: {
+            _id: 'p2',
+            muted: true,
+            parent: {
+              _id: 'p3'
+            }
+          }
+        }
+      };
 
+      const contacts = [
+        {
+          _id: 'p2',
+          muted: 123,
+          muting_history: {
+            offline: [
+              { report_id: 'a', date: 1 },
+              { report_id: 'b', date: 2 },
+              { report_id: 'c', date: 3 },
+            ],
+          },
+        },
+        {
+          _id: 'p1',
+          muted: 456,
+          muting_history: {
+            offline: [
+              { report_id: 'aa', date: 1 },
+              { report_id: 'bb', date: 2 },
+              { report_id: 'cc', date: 3 },
+            ],
+          },
+        },
+        {
+          _id: 'my-place',
+          muted: true,
+          muting_history: {
+            offline: [
+              { report_id: 'aaa', date: 1 },
+              { report_id: 'bbb', date: 2 },
+              { report_id: 'ccc', date: 3 },
+            ],
+          },
+        },
+        { _id: 'contact1', muted: true, patient_id: 'patient1' },
+        { _id: 'contact2', muted: true, patient_id: 'patient2' }
+      ];
+
+      db.medic.query.resolves({ rows: contacts.map(contact => ({ id: contact._id, value: contact.patient_id })) });
+      db.medic.allDocs.resolves({ rows: contacts.map(doc => ({ id: doc._id, doc: doc }))});
+      utils.getReportsBySubject.resolves([]);
+      db.medic.bulkDocs.resolves();
+      sinon.stub(infodoc, 'bulkGet').resolves([]);
+      sinon.stub(infodoc, 'bulkUpdate').resolves();
+
+      return mutingUtils.updateMuteState(hydratedPlace, false, reportId, true).then(result => {
+        chai.expect(result).to.deep.equal([]);
+      });
     });
 
     it('should skip entries with no date - these shouldn\'t exist anyway', () => {
+      const reportId = 'reportid';
+      const hydratedPlace = {
+        _id: 'my-place',
+        muted: true,
+        parent: {
+          _id: 'p1',
+          parent: {
+            _id: 'p2',
+            muted: true,
+            parent: {
+              _id: 'p3'
+            }
+          }
+        }
+      };
 
+      const contacts = [
+        {
+          _id: 'p2',
+          muted: 123,
+          muting_history: {
+            offline: [
+              { report_id: 'a', date: 1 },
+              { report_id: reportId, date: 1 },
+              { report_id: 'b' },
+              { date: 3 },
+              { report_id: 'c', date: 3 },
+            ],
+          },
+        },
+        {
+          _id: 'p1',
+          muted: 456,
+          muting_history: {
+            offline: [
+              { report_id: reportId, date: 1 },
+              { report_id: 'aa' },
+              { report_id: 'bb', date: 2 },
+              { report_id: 'cc', date: 3 },
+            ],
+          },
+        },
+        {
+          _id: 'my-place',
+          muted: true,
+          muting_history: {
+            offline: [
+              { report_id: 'aaa', date: 1 },
+              { report_id: 'bbb', date: 2 },
+              { report_id: 'ccc', date: 3 },
+            ],
+          },
+        },
+        { _id: 'contact1', muted: true, patient_id: 'patient1' },
+        { _id: 'contact2', muted: true, patient_id: 'patient2' }
+      ];
+
+      db.medic.query.resolves({ rows: contacts.map(contact => ({ id: contact._id, value: contact.patient_id })) });
+      db.medic.allDocs.resolves({ rows: contacts.map(doc => ({ id: doc._id, doc: doc }))});
+      utils.getReportsBySubject.resolves([]);
+      db.medic.bulkDocs.resolves();
+      sinon.stub(infodoc, 'bulkGet').resolves([]);
+      sinon.stub(infodoc, 'bulkUpdate').resolves();
+
+      return mutingUtils.updateMuteState(hydratedPlace, false, reportId, true).then(result => {
+        chai.expect(result).to.deep.equal(['bb', 'c', 'cc']);
+      });
     });
 
     it('should handle duplicates with different dates', () => {
+      const reportId = 'reportid';
+      const hydratedPlace = {
+        _id: 'my-place',
+        muted: true,
+        parent: {
+          _id: 'p1',
+          parent: {
+            _id: 'p2',
+            muted: true,
+            parent: {
+              _id: 'p3'
+            }
+          }
+        }
+      };
 
+      const contacts = [
+        {
+          _id: 'p2',
+          muted: 123,
+          muting_history: {
+            offline: [
+              { report_id: 'a', date: 1 },
+              { report_id: reportId, date: 1 },
+              { report_id: 'b', date: 1 },
+              { report_id: 'c', date: 3 },
+              { report_id: 'd', date: 4 },
+            ],
+          },
+        },
+        {
+          _id: 'p1',
+          muted: 456,
+          muting_history: {
+            offline: [
+              { report_id: reportId, date: 1 },
+              { report_id: 'b', date: 4 },
+              { report_id: 'c', date: 5 },
+              { report_id: 'e', date: 6 },
+            ],
+          },
+        },
+        {
+          _id: 'my-place',
+          muted: true,
+          muting_history: {
+            offline: [
+              { report_id: 'a', date: 1 },
+              { report_id: 'b', date: 2 },
+              { report_id: reportId, date: 3 },
+              { report_id: 'c', date: 4 },
+            ],
+          },
+        },
+        { _id: 'contact1', muted: true, patient_id: 'patient1' },
+        { _id: 'contact2', muted: true, patient_id: 'patient2' }
+      ];
+
+      db.medic.query.resolves({ rows: contacts.map(contact => ({ id: contact._id, value: contact.patient_id })) });
+      db.medic.allDocs.resolves({ rows: contacts.map(doc => ({ id: doc._id, doc: doc }))});
+      utils.getReportsBySubject.resolves([]);
+      db.medic.bulkDocs.resolves();
+      sinon.stub(infodoc, 'bulkGet').resolves([]);
+      sinon.stub(infodoc, 'bulkUpdate').resolves();
+
+      return mutingUtils.updateMuteState(hydratedPlace, false, reportId, true).then(result => {
+        chai.expect(result).to.deep.equal(['b', 'c', 'd', 'e']);
+      });
+    });
+
+    it('should sort returned reports by muted by date', () => {
+      const reportId = 'reportid';
+      const hydratedPlace = {
+        _id: 'my-place',
+        muted: true,
+        parent: {
+          _id: 'p1',
+          parent: {
+            _id: 'p2',
+            muted: true,
+            parent: {
+              _id: 'p3'
+            }
+          }
+        }
+      };
+
+      const contacts = [
+        {
+          _id: 'p2',
+          muted: 123,
+          muting_history: {
+            offline: [
+              { report_id: 'a', date: 1 },
+              { report_id: reportId, date: 1 },
+              { report_id: 'a', date: 100 },
+              { report_id: 'b', date: 300 },
+              { report_id: 'c', date: 500 },
+            ],
+          },
+        },
+        {
+          _id: 'p1',
+          muted: 456,
+          muting_history: {
+            offline: [
+              { report_id: reportId, date: 1 },
+              { report_id: 'aa', date: 183 },
+              { report_id: 'bb', date: 265 },
+              { report_id: 'cc', date: 698 },
+            ],
+          },
+        },
+        {
+          _id: 'my-place',
+          muted: true,
+          muting_history: {
+            offline: [
+              { report_id: 'aaa', date: 10 },
+              { report_id: 'bbb', date: 200 },
+              { report_id: reportId, date: 350 },
+              { report_id: 'ccc', date: 451 },
+            ],
+          },
+        },
+        { _id: 'contact1', muted: true, patient_id: 'patient1' },
+        { _id: 'contact2', muted: true, patient_id: 'patient2' }
+      ];
+
+      db.medic.query.resolves({ rows: contacts.map(contact => ({ id: contact._id, value: contact.patient_id })) });
+      db.medic.allDocs.resolves({ rows: contacts.map(doc => ({ id: doc._id, doc: doc }))});
+      utils.getReportsBySubject.resolves([]);
+      db.medic.bulkDocs.resolves();
+      sinon.stub(infodoc, 'bulkGet').resolves([]);
+      sinon.stub(infodoc, 'bulkUpdate').resolves();
+
+      return mutingUtils.updateMuteState(hydratedPlace, false, reportId, true).then(result => {
+        chai.expect(result).to.deep.equal(['a', 'aa', 'bb', 'b', 'ccc', 'c', 'cc']);
+      });
     });
 
     it('should throw db query errors', () => {
