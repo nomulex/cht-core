@@ -1,3 +1,4 @@
+const _ = require('lodash');
 const db = require('../db');
 const lineage = require('@medic/lineage')(Promise, db.medic);
 const utils = require('./utils');
@@ -127,22 +128,20 @@ const addMutingHistory = (info, muted, reportId) => {
   return info;
 };
 
-const updateMuteState = (contact, muted, reportId, getNextReports = false) => {
+const updateMuteState = (contact, muted, reportId, getOfflineMutingReportQueue = false) => {
   muted = muted && moment();
 
-  let rootContactId;
-  if (muted) {
-    rootContactId = contact._id;
-  } else {
+  let rootContactId = contact._id;
+  if (!muted) {
     let parent = contact;
+    // get topmost muted ancestor
     while (parent) {
       rootContactId = parent.muted ? parent._id : rootContactId;
       parent = parent.parent;
     }
   }
 
-  const reportsToProcessNext = [];
-  const compareFn = (a, b) => a.date.localeCompare(b.date);
+  const offlineMutingReportQueue = [];
 
   return getDescendants(rootContactId).then(contactIds => {
     const batches = [];
@@ -155,7 +154,10 @@ const updateMuteState = (contact, muted, reportId, getNextReports = false) => {
         return promise
           .then(() => getContactsAndSubjectIds(batch, muted))
           .then(result => {
-            getNextReports && reportsToProcessNext.push(...getReportsToProcessNext(result.contacts));
+            if (getOfflineMutingReportQueue) {
+              offlineMutingReportQueue.push(...getFollowingMutingReports(result.contacts, reportId));
+            }
+
             return Promise.all([
               updateContacts(result.contacts, muted),
               updateRegistrations(result.subjectIds, muted),
@@ -163,18 +165,25 @@ const updateMuteState = (contact, muted, reportId, getNextReports = false) => {
             ]);
           });
       }, Promise.resolve())
-      .then(() => reportsToProcessNext.sort(compareFn));
+      .then(() => getSortedReportsList(offlineMutingReportQueue));
   });
 };
 
-const getReportsToProcessNext = (contacts, reportId) => {
+const getSortedReportsList = (mutingQueue) => {
+  const compareFn = (a, b) => String(a.date).localeCompare(String(b.date));
+  const sortedQueue = mutingQueue.sort(compareFn).map(entry => entry.report_id);
+  // _uniq guarantees sorted results, first occurrence is selected which is what we want!
+  return _.uniq(sortedQueue);
+};
+
+const getFollowingMutingReports = (contacts, reportId) => {
   const list = [];
   contacts.forEach(contact => {
     if (!contact.muting_history || !contact.muting_history.offline || !contact.muting_history.offline.length) {
       return;
     }
     let found = false;
-    contact.muting_history.forEach(mutingHistory => {
+    contact.muting_history.offline.forEach(mutingHistory => {
       if (!mutingHistory.report_id || !mutingHistory.date) {
         return;
       }

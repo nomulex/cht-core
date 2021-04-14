@@ -85,14 +85,13 @@ const processContact = (change) => {
     });
 };
 
-const processNextReports = (change, nextReports) => {
-  if (!nextReports.length) {
+const processOfflineMutingQueue = (change, reportIds) => {
+  if (!reportIds.length) {
     return Promise.resolve();
   }
 
-  const ids = nextReports.map(nextReport => nextReport.report_id);
   return mutingUtils.db.medic
-    .allDocs({ keys: ids, include_docs: true })
+    .allDocs({ keys: reportIds, include_docs: true })
     .then(results => {
       // exclude docs that have not been synced, have been deleted or are no longer muting reports
       // we re-run muting on these docs even if the transition already ran
@@ -175,10 +174,10 @@ module.exports = {
           return;
         }
 
-        const getNextReports = change.doc.offline_transitions && change.doc.offline_transitions[TRANSITION_NAME];
+        const getOfflineMutingQueue = change.doc.offline_transitions && change.doc.offline_transitions[TRANSITION_NAME];
         return mutingUtils
-          .updateMuteState(contact, muteState, change.id, getNextReports)
-          .then(nextReports => processNextReports(change, nextReports))
+          .updateMuteState(contact, muteState, change.id, getOfflineMutingQueue)
+          .then(offlineMutingReports => processOfflineMutingQueue(change, offlineMutingReports))
           .then(() => true);
       })
       .then(changed => changed && module.exports._addMsg(getEventType(muteState), change.doc, contact))

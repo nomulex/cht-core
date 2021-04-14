@@ -81,42 +81,36 @@ module.exports = {
     const doc = change.doc;
     const config = module.exports.getConfig();
     const eventType = getEventType(config, doc);
-    let patient;
 
     if (!eventType) {
       return Promise.resolve();
     }
 
+    const contact = mutingUtils.getContact(doc);
+
     return transitionUtils.validate(config, doc).then(errors => {
       if (errors && errors.length > 0) {
-        messages.addErrors(config, doc, errors, { patient: doc.patient });
+        messages.addErrors(config, doc, errors, { patient: doc.patient, place: doc.place });
+        return true;
+      }
+
+      if (!contact) {
+        self._addErr('patient_not_found', config, doc);
+        self._addMsg('patient_not_found', config, doc);
+        return true;
+      }
+
+      if (Boolean(contact.muted) === eventType.mute) {
+        // don't update registrations if contact already has desired state
+        self._addMsg(getEventName(eventType), config, doc, [], contact);
         return true;
       }
 
       return mutingUtils
-        .getContact(change.doc)
-        .then(contact => {
-          patient = contact;
-
-          if (Boolean(contact.muted) === eventType.mute) {
-            // don't update registrations if contact already has desired state
-            return;
-          }
-
-          return mutingUtils.updateMuteState(contact, eventType.mute, change.id);
-        })
+        .updateMuteState(contact, eventType.mute, change.id)
         .then(() => {
-          self._addMsg(getEventName(eventType), config, doc, [], patient);
+          self._addMsg(getEventName(eventType), config, doc, [], contact);
           return true;
-        })
-        .catch(err => {
-          if (err && err.message === 'contact_not_found') {
-            self._addErr('patient_not_found', config, doc);
-            self._addMsg('patient_not_found', config, doc);
-            return true;
-          }
-
-          return Promise.reject(err);
         });
     });
   }
