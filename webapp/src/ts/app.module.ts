@@ -70,7 +70,7 @@ export class MissingTranslationHandlerLog implements MissingTranslationHandler {
     PipesModule,
     RouterModule,
     HttpClientModule,
-    StoreModule.forRoot(reducers, { metaReducers: [] }),
+    StoreModule.forRoot(reducers, { metaReducers }),
     TranslateModule.forRoot({
       loader: {
         provide: TranslateLoader,

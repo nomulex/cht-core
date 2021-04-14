@@ -1,7 +1,6 @@
 const config = require('../../src/config');
 const sinon = require('sinon');
 const assert = require('chai').assert;
-const utils = require('../../src/lib/utils');
 const transition = require('../../src/transitions/accept_patient_reports');
 
 describe('functional validations', () => {

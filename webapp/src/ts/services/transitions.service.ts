@@ -3,7 +3,6 @@ import { Injectable } from '@angular/core';
 import { DbService } from '@mm-services/db.service';
 import { SettingsService } from '@mm-services/settings.service';
 import { MutingTransition } from '@mm-services/transitions/muting.transition';
-import { transition } from '@angular/animations';
 
 @Injectable({
   providedIn: 'root'

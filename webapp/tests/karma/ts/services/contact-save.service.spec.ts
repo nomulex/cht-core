@@ -9,6 +9,7 @@ import { EnketoTranslationService } from '@mm-services/enketo-translation.servic
 import { ExtractLineageService } from '@mm-services/extract-lineage.service';
 import { ContactSaveService } from '@mm-services/contact-save.service';
 import { ServicesActions } from '@mm-actions/services';
+import { TransitionsService } from '@mm-services/transitions.service';
 
 describe('ContactSave service', () => {
 
@@ -18,6 +19,7 @@ describe('ContactSave service', () => {
   let contactTypesService;
   let enketoTranslationService;
   let extractLineageService;
+  let transitionsService;
   let setLastChangedDoc;
   let clock;
 
@@ -28,6 +30,7 @@ describe('ContactSave service', () => {
 
     contactTypesService = { isHardcodedType: sinon.stub().returns(false) };
     extractLineageService = { extract: sinon.stub() };
+    transitionsService = { applyTransitions: sinon.stub().resolvesArg(0) };
     bulkDocs = sinon.stub();
     get = sinon.stub();
     setLastChangedDoc = sinon.stub(ServicesActions.prototype, 'setLastChangedDoc');
@@ -39,6 +42,7 @@ describe('ContactSave service', () => {
         { provide: ContactTypesService, useValue: contactTypesService },
         { provide: EnketoTranslationService, useValue: enketoTranslationService },
         { provide: ExtractLineageService, useValue: extractLineageService },
+        { provide: TransitionsService, useValue: transitionsService },
       ]
     });
 

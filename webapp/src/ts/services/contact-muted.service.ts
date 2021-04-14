@@ -33,6 +33,6 @@ export class ContactMutedService {
   }
 
   getMuted(doc, lineage?) {
-    return this.getMutedParent(doc, lineage)?.muted;
+    return this.getMutedParent(doc, lineage)?.muted || false;
   }
 }
