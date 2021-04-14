@@ -236,7 +236,6 @@ export class MutingTransition implements TransitionInterface {
 
     context.contacts.forEach(contact => {
       const hydratedContact = context.hydratedContacts[contact._id];
-      console.warn(hydratedContact);
       // todo check if this works
       const mutedParent = this.contactMutedService.getMutedParent(hydratedContact);
       if (mutedParent) {
@@ -317,8 +316,6 @@ export class MutingTransition implements TransitionInterface {
       // we have reports that mute and unmute in the same batch, so only unmute!
       context.reports = context.reports.filter(report => this.isUnmuteForm(report));
     }
-
-    console.log('muting context', context);
 
     await this.hydrateContacts(context);
     await this.processReports(context);

@@ -65,8 +65,13 @@ const isRelevantContact = (doc, infoDoc = {}) => {
 };
 
 const processContact = (change) => {
-  // todo when processing locally muted contacts, we're not always muting!!!
-  const muted = new Date();
+  let muted;
+  if (isNewContactWithMutedParent(change.doc, change.info)) {
+    muted = new Date();
+  } else {
+    muted = change.doc.muted ? new Date() : false;
+  }
+
   return mutingUtils
     .updateRegistrations(utils.getSubjectIds(change.doc), muted)
     .then(() => mutingUtils.updateMutingHistory(
