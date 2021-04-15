@@ -128,7 +128,7 @@ const addMutingHistory = (info, muted, reportId) => {
   return info;
 };
 
-const updateMuteState = (contact, muted, reportId, getOfflineMutingReportQueue = false) => {
+const updateMuteState = (contact, muted, reportId, replayOfflineMuting = false) => {
   muted = muted && moment();
 
   let rootContactId = contact._id;
@@ -141,7 +141,7 @@ const updateMuteState = (contact, muted, reportId, getOfflineMutingReportQueue =
     }
   }
 
-  const offlineMutingReportQueue = [];
+  const offlineMutingReplayQueue = [];
 
   return getDescendants(rootContactId).then(contactIds => {
     const batches = [];
@@ -154,8 +154,8 @@ const updateMuteState = (contact, muted, reportId, getOfflineMutingReportQueue =
         return promise
           .then(() => getContactsAndSubjectIds(batch, muted))
           .then(result => {
-            if (getOfflineMutingReportQueue) {
-              offlineMutingReportQueue.push(...getFollowingMutingReports(result.contacts, reportId));
+            if (replayOfflineMuting) {
+              offlineMutingReplayQueue.push(...getOfflineMutingEventsToReplay(result.contacts, reportId));
             }
 
             return Promise.all([
@@ -165,38 +165,42 @@ const updateMuteState = (contact, muted, reportId, getOfflineMutingReportQueue =
             ]);
           });
       }, Promise.resolve())
-      .then(() => getSortedReportsList(offlineMutingReportQueue));
+      .then(() => sortReplayQueue(offlineMutingReplayQueue));
   });
 };
 
-const getSortedReportsList = (mutingQueue) => {
-  const compareFn = (a, b) => String(a.date).localeCompare(String(b.date));
-  const sortedQueue = mutingQueue.sort(compareFn).map(entry => entry.report_id);
+// todo add jsdoc
+const sortReplayQueue = (replayEvents) => {
+  const compareDates = (a, b) => String(a.date).localeCompare(String(b.date));
+  const sortedQueue = replayEvents.sort(compareDates).map(entry => entry.report_id);
   // _uniq guarantees sorted results, first occurrence is selected which is what we want!
   return _.uniq(sortedQueue);
 };
 
-const getFollowingMutingReports = (contacts, reportId) => {
-  const list = [];
+// todo add jsodc
+// add comment about how this works and the drawbacks of mixing online and offline muting!
+const getOfflineMutingEventsToReplay = (contacts, reportId) => {
+  const offlineMutingEvents = [];
   contacts.forEach(contact => {
     if (!contact.muting_history || !contact.muting_history.offline || !contact.muting_history.offline.length) {
       return;
     }
     let found = false;
+    // todo add comment
     contact.muting_history.offline.forEach(mutingHistory => {
       if (!mutingHistory.report_id || !mutingHistory.date) {
         return;
       }
 
       if (found) {
-        list.push({ report_id: mutingHistory.report_id, date: mutingHistory.date });
+        offlineMutingEvents.push({ report_id: mutingHistory.report_id, date: mutingHistory.date });
       } else if (mutingHistory.report_id === reportId) {
         found = true;
       }
     });
   });
 
-  return list;
+  return offlineMutingEvents;
 };
 
 const isMutedInLineage = (doc, beforeMillis) => {

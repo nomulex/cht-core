@@ -85,7 +85,7 @@ const processContact = (change) => {
     });
 };
 
-const runMutingOverOfflineQueue = (reportIds = []) => {
+const replayOfflineMuting = (reportIds = []) => {
   if (!reportIds.length) {
     return Promise.resolve();
   }
@@ -134,7 +134,7 @@ const processMutingEvent = (contact, change, muteState) => {
       module.exports._addMsg(getEventType(muteState), change.doc, contact);
 
       if (processedOffline) {
-        return runMutingOverOfflineQueue(reportIds);
+        return replayOfflineMuting(reportIds);
       }
     });
 };
@@ -186,7 +186,7 @@ module.exports = {
           return;
         }
 
-        if (Boolean(contact.muted) === muteState && !contact.muting_history) {
+        if (Boolean(contact.muted) === muteState && !isMutedOffline(contact)) {
           // don't update registrations if contact already has desired state
           // but do process muting events that have been handled offline
           module.exports._addMsg(contact.muted ? 'already_muted' : 'already_unmuted', change.doc);
