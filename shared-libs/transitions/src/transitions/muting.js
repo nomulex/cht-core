@@ -113,7 +113,7 @@ const runMutingOverOfflineQueue = (reportIds = []) => {
     });
 };
 
-const runTransition = (hydratedReport, infoDocs) => {
+const runTransition = (hydratedReport, infoDocs = []) => {
   const change = {
     id: hydratedReport._id,
     doc: hydratedReport,
