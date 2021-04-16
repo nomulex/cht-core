@@ -29,54 +29,54 @@ export class TransitionsService {
     return this.inited;
   }
 
-  private loadSettings() {
-    return this.settingsService.get().then(result => this.settings = result);
+  private async loadSettings() {
+    this.settings = (await this.settingsService.get()) || {};
   }
 
-  private loadTransitions() {
-    return this
-      .loadSettings()
-      .then(() => {
-        this.AVAILABLE_TRANSITIONS.forEach(({ name, transition }) => {
-          if (!this.isEnabled(name)) {
-            return;
-          }
+  private async loadTransitions() {
+    await this.loadSettings();
 
-          if (!transition.init(this.settings)) {
-            return;
-          }
+    try {
+      this.AVAILABLE_TRANSITIONS.forEach(({ name, transition }) => {
+        if (!this.isEnabled(name)) {
+          return;
+        }
 
-          this.loadedTransitions.push({ name, transition });
-        });
-      })
-      .catch(err => {
-        console.error('Error loading transitions', err);
+        if (!transition.init(this.settings)) {
+          return;
+        }
+
+        this.loadedTransitions.push({ name, transition });
       });
+    } catch (err) {
+      console.error('Error loading transitions', err);
+    }
   }
 
   private isEnabled(transitionName) {
-    const transitionsConfig = this.settings?.transitions || {};
+    const transitionsConfig = this.settings.transitions || {};
     const transitionConfig = transitionsConfig[transitionName];
     if (transitionConfig && !transitionConfig.disable) {
       return true;
     }
   }
 
-  applyTransitions(docs) {
-    if (!this.inited || !this.loadedTransitions.length) {
-      return Promise.resolve(docs);
+  async applyTransitions(docs) {
+    await this.init();
+
+    if (!this.loadedTransitions.length) {
+      return docs;
     }
 
-    let promiseChain = Promise.resolve();
-    this.loadedTransitions.forEach(loadedTransition => {
+    for (const loadedTransition of this.loadedTransitions) {
       if (!loadedTransition.transition.filter(docs)) {
-        console.log('transition', loadedTransition.name, 'filter failed for docs');
-        return;
+        console.debug('transition', loadedTransition.name, 'filter failed');
+        continue;
       }
 
-      console.log('running', loadedTransition.name, 'over', docs);
-      promiseChain = promiseChain.then(() => loadedTransition.transition.onMatch(docs));
-    });
-    return promiseChain.then(() => docs);
+      await loadedTransition.transition.run(docs);
+    }
+
+    return docs;
   }
 }

@@ -21,26 +21,26 @@ export class MutingTransition implements TransitionInterface {
   ) { }
 
   name = 'muting';
-  private SETTINGS;
+  private transitionConfig;
   private CONFIG_NAME = 'muting';
   private readonly MUTE_PROPERTY = 'mute_forms';
   private readonly UNMUTE_PROPERTY = 'unmute_forms';
 
-  private getSettings(settings = {}) {
-    this.SETTINGS = settings[this.CONFIG_NAME] || {};
+  private loadSettings(settings = {}) {
+    this.transitionConfig = settings[this.CONFIG_NAME] || {};
   }
 
   private getMutingForms() {
-    return this.SETTINGS[this.MUTE_PROPERTY];
+    return this.transitionConfig[this.MUTE_PROPERTY];
   }
 
   private getUnmutingForms() {
-    return this.SETTINGS[this.UNMUTE_PROPERTY];
+    return this.transitionConfig[this.UNMUTE_PROPERTY];
   }
 
   init(settings) {
-    this.getSettings(settings);
-    if (!this.SETTINGS.offline_muting) {
+    this.loadSettings(settings);
+    if (!this.transitionConfig.offline_muting) {
       return false;
     }
 
@@ -51,6 +51,7 @@ export class MutingTransition implements TransitionInterface {
       );
       return false;
     }
+    // todo do we even add messages offline??
     const translate = (key) => key;
     validation.init({ settings, db: { medic: this.dbService.get() }, translate, logger: console });
     return true;
@@ -107,19 +108,19 @@ export class MutingTransition implements TransitionInterface {
   }
 
   private hydrateReports(reports) {
-    const clones = reports.map(report => {
-      const clone = cloneDeep(report);
-      delete clone.contact; // don't hydrate the submitter to save time
-      return clone;
+    const clonedReports = reports.map(report => {
+      const reportClone = cloneDeep(report);
+      delete reportClone.contact; // don't hydrate the submitter to save time, we already know who submitted these
+      return reportClone;
     });
-    return this.lineageModelGeneratorService.docs(clones);
+    return this.lineageModelGeneratorService.docs(clonedReports);
   }
 
   private async hydrateContacts(context) {
-    const hydratedContactsArray = await this.lineageModelGeneratorService.docs(context.contacts);
-
-    context.hydratedContacts = {};
-    hydratedContactsArray.forEach(contact => context.hydratedContacts[contact._id] = contact);
+    // this works out of the box, even for contacts that don't exist, because the hydration script consolidates all
+    // "known" contacts into a single array, which includes the ones that we pass as arguments
+    const hydratedContacts = await this.lineageModelGeneratorService.docs(context.contacts);
+    hydratedContacts.forEach(contact => context.hydratedContacts[contact._id] = contact);
 
     Object.keys(context.hydratedContacts).forEach(contactId => {
       let parent:any = context.hydratedContacts[contactId];
@@ -131,7 +132,7 @@ export class MutingTransition implements TransitionInterface {
   }
 
   private async isValid(report) {
-    const validations = this.SETTINGS.validations?.list;
+    const validations = this.transitionConfig.validations?.list;
     const errors = await validation.validate(report, validations);
     // todo add the errors on the doc?
     return !errors || !errors.length;
@@ -278,7 +279,7 @@ export class MutingTransition implements TransitionInterface {
     }
   }
 
-  async onMatch(docs) {
+  async run(docs) {
     const context = {
       docs,
       reports: [],
