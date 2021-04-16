@@ -1590,9 +1590,19 @@ describe('muting', () => {
           expect(updatedNewPerson.muting_history.last_update).toBe('online');
           expect(findMutingHistoryForReport(newPersonInfo.muting_history, 'unmutes_new_person').muted).toBe(false);
         })
-        // muting won't run again if the replayed docs get updated!
+        // push a doc from the offline muting history
         .then(() => utils.saveDoc(mutesClinic))
-        .then(() => sentinelUtils.waitForSentinel('mutes_clinic'))
+        .then(() => sentinelUtils.waitForSentinel(mutesClinic._id))
+        .then(() => utils.getDocs([clinic._id, person._id, newPerson._id]))
+        .then(([ updatedClinic, updatedPerson, updatedNewPerson ]) => {
+          // nothing changed
+          expect(updatedClinic.muted).toBeUndefined();
+          expect(updatedPerson.muted).toBeDefined();
+          expect(updatedNewPerson.muted).toBeUndefined();
+        })
+        // update the report again
+        .then(() => utils.getDoc(mutesClinic._id))
+        .then(report => utils.saveDoc(report))
         .then(() => utils.getDocs([clinic._id, person._id, newPerson._id]))
         .then(([ updatedClinic, updatedPerson, updatedNewPerson ]) => {
           // nothing changed
