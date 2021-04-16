@@ -285,7 +285,7 @@ export class AppComponent implements OnInit {
 
   private initTransitions() {
     if (!this.sessionService.isOnlineOnly()) {
-      this.transitionsService.init();
+      return this.transitionsService.init();
     }
   }
 

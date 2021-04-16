@@ -141,6 +141,8 @@ const updateMuteState = (contact, muted, reportId, replayOfflineMuting = false) 
     }
   }
 
+  // todo error when I unmuted a clinic locally, while the district was muted online!
+
   const offlineMutingReplayQueue = [];
 
   return getDescendants(rootContactId).then(contactIds => {

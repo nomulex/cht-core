@@ -20,11 +20,13 @@ export class MutingTransition implements TransitionInterface {
     private contactTypesService:ContactTypesService,
   ) { }
 
-  name = 'muting';
+  readonly name = 'muting';
+
   private transitionConfig;
-  private CONFIG_NAME = 'muting';
+  private readonly CONFIG_NAME = 'muting';
   private readonly MUTE_PROPERTY = 'mute_forms';
   private readonly UNMUTE_PROPERTY = 'unmute_forms';
+  private readonly OFFLINE_LAST_UPDATE = 'offline';
 
   private loadSettings(settings = {}) {
     this.transitionConfig = settings[this.CONFIG_NAME] || {};
@@ -120,12 +122,12 @@ export class MutingTransition implements TransitionInterface {
     // this works out of the box, even for contacts that don't exist, because the hydration script consolidates all
     // "known" contacts into a single array, which includes the ones that we pass as arguments
     const hydratedContacts = await this.lineageModelGeneratorService.docs(context.contacts);
-    hydratedContacts.forEach(contact => context.hydratedContacts[contact._id] = contact);
 
-    Object.keys(context.hydratedContacts).forEach(contactId => {
-      let parent:any = context.hydratedContacts[contactId];
+    hydratedContacts.forEach(contact => {
+      context.hydratedContacts[contact._id] = contact;
+      let parent = contact.parent;
       while (parent) {
-        context.flattenedHydratedContactsById[parent._id] = parent;
+        context.hydratedContacts[parent._id] = parent;
         parent = parent.parent;
       }
     });
@@ -143,9 +145,9 @@ export class MutingTransition implements TransitionInterface {
     if (!contact) {
       // the report can be about a patient or place that we're just now creating
       const subjectIds = registrationUtils.getSubjectIds(report);
-      const contactId = Object.keys(context.hydratedContacts).find(contactId => subjectIds.includes(contactId));
-      if (contactId) {
-        contact = context.hydratedContacts[contactId];
+      const newContact = context.contacts.find(contact => subjectIds.includes(contact._id));
+      if (newContact) {
+        contact = context.hydratedContacts[newContact._id];
       }
     }
 
@@ -178,7 +180,9 @@ export class MutingTransition implements TransitionInterface {
   private async updatedMuteState(contact, muted, report, context) {
     let rootContactId;
 
+    // when muting, mute the contact itself + all descendents
     rootContactId = contact._id;
+    // when unmuting, find the topmost muted parent and unmute it and all its descendents
     if (!muted) {
       let parent = contact;
       while (parent) {
@@ -201,9 +205,9 @@ export class MutingTransition implements TransitionInterface {
   }
 
   private getRootContact(rootContactId, context) {
-    const knownRootContact = context.docs.find(doc => doc._id === rootContactId);
-    if (knownRootContact) {
-      return Promise.resolve(knownRootContact);
+    const knownContact = context.docs.find(doc => doc._id === rootContactId);
+    if (knownContact) {
+      return Promise.resolve(knownContact);
     }
 
     return this.dbService.get().get(rootContactId);
@@ -230,18 +234,29 @@ export class MutingTransition implements TransitionInterface {
     return descendents;
   }
 
+  private getLastMutingEvent(contact) {
+    return this.lastUpdatedOffline(contact) && contact?.muting_history?.offline?.slice(-1)[0] || {};
+  }
+  private lastUpdatedOffline(contact) {
+    return contact?.muting_history?.last_update === this.OFFLINE_LAST_UPDATE;
+  }
+
   private processContacts(context) {
     if (!context.contacts.length) {
-      return Promise.resolve();
+      return;
     }
 
     context.contacts.forEach(contact => {
       const hydratedContact = context.hydratedContacts[contact._id];
-      // todo check if this works
       const mutedParent = this.contactMutedService.getMutedParent(hydratedContact);
       if (mutedParent) {
-        const flattenedMutedParent = context.flattenedHydratedContactsById[mutedParent._id];
-        const reportId = flattenedMutedParent.muting_history?.offline?.slice(-1)[0]?.report_id;
+        const updatedMutedParent = context.hydratedContacts[mutedParent._id];
+        // store reportId if the parent was last muted offline
+        // if the parent was last muted online, we don't have access to this information
+        const reportId = this.lastUpdatedOffline(updatedMutedParent) ?
+          this.getLastMutingEvent(updatedMutedParent).report_id :
+          undefined;
+
         this.processContact(contact, true, reportId, context);
       }
     });
@@ -256,15 +271,9 @@ export class MutingTransition implements TransitionInterface {
           date: contact.muted,
         },
         offline: [],
-        last_update: 'offline',
+        last_update: this.OFFLINE_LAST_UPDATE,
       };
     }
-
-    contact.muting_history.offline.push({
-      muted: muted,
-      date: context.mutedTimestamp,
-      report_id: reportId,
-    });
 
     if (muted) {
       contact.muted = context.mutedTimestamp;
@@ -272,10 +281,25 @@ export class MutingTransition implements TransitionInterface {
       delete contact.muted;
     }
 
-    // consolidate muted state in flattenedHydratedContactsById
-    if (context.flattenedHydratedContactsById[contact._id]) {
-      context.flattenedHydratedContactsById[contact._id].muted = contact.muted;
-      context.flattenedHydratedContactsById[contact._id].muting_history = contact.muting_history;
+    const mutingEvent = {
+      muted: muted,
+      date: context.mutedTimestamp,
+      report_id: reportId,
+    };
+    const lastMutingEvent = this.getLastMutingEvent(contact);
+    if (lastMutingEvent &&
+      lastMutingEvent.muted === mutingEvent.muted &&
+      lastMutingEvent.date === mutingEvent.date &&
+      lastMutingEvent.report_id === mutingEvent.report_id) {
+      // don't duplicate the muting events
+      return;
+    }
+
+    contact.muting_history.offline.push(mutingEvent);
+    // consolidate muted state in hydratedContacts
+    if (context.hydratedContacts[contact._id]) {
+      context.hydratedContacts[contact._id].muted = contact.muted;
+      context.hydratedContacts[contact._id].muting_history = contact.muting_history;
     }
   }
 
@@ -285,7 +309,6 @@ export class MutingTransition implements TransitionInterface {
       reports: [],
       contacts: [],
       hydratedContacts: {},
-      flattenedHydratedContactsById: {},
       mutedTimestamp: new Date().toISOString(),
     };
 
@@ -320,7 +343,7 @@ export class MutingTransition implements TransitionInterface {
 
     await this.hydrateContacts(context);
     await this.processReports(context);
-    await this.processContacts(context);
+    this.processContacts(context);
 
     return docs;
   }

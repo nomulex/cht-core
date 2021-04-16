@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { cloneDeep } from 'lodash-es';
 
 import { DbService } from '@mm-services/db.service';
 import { SettingsService } from '@mm-services/settings.service';
@@ -62,19 +63,32 @@ export class TransitionsService {
   }
 
   async applyTransitions(docs) {
-    await this.init();
+    if (!this.inited) {
+      console.warn('not running transitions');
+      return docs;
+    }
 
+    await this.inited;
     if (!this.loadedTransitions.length) {
       return docs;
     }
 
-    for (const loadedTransition of this.loadedTransitions) {
-      if (!loadedTransition.transition.filter(docs)) {
-        console.debug('transition', loadedTransition.name, 'filter failed');
-        continue;
-      }
+    // keep a copy of the docs, to return in case transitions fail and we end up with partially edited docs
+    const originalDocs = cloneDeep(docs);
 
-      await loadedTransition.transition.run(docs);
+    for (const loadedTransition of this.loadedTransitions) {
+      try {
+        if (!loadedTransition.transition.filter(docs)) {
+          console.debug('transition', loadedTransition.name, 'filter failed');
+          continue;
+        }
+
+        docs = await loadedTransition.transition.run(docs);
+      } catch (err) {
+        //
+        console.error('Error while running transitions', err);
+        return originalDocs;
+      }
     }
 
     return docs;
