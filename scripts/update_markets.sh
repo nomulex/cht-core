@@ -82,7 +82,7 @@ fi
 
 _to_ssl () {
     local file=$1
-    sed -i.bak 's/http:\/\/staging.dev.medicmobile.org/https:\/\/staging.dev.medicmobile.org/g' \
+    sed -i.bak 's/http:\/\/staging.app.medicmobile.org/https:\/\/staging.appss.medicmobile.org/g' \
         "$file"
 }
 

@@ -234,4 +234,4 @@ To build reference documentation into a local folder `jsdoc-docs`: `grunt build-
 
 # Automated Deployment on Travis
 
-Code is automatically published via [Travis CI](https://travis-ci.org/github/medic/cht-core) to the [staging server](https://staging.dev.medicmobile.org).
+Code is automatically published via [Travis CI](https://travis-ci.org/github/medic/cht-core) to the [staging server](https://staging.app.medicmobile.org).

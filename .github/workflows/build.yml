@@ -27,7 +27,7 @@ jobs:
     - name: Set MARKET_URL var
       run: |
         if [[ -z "$MARKET_URL" ]]; then
-          echo "MARKET_URL=https://staging.dev.medicmobile.org" >> $GITHUB_ENV
+          echo "MARKET_URL=https://staging.app.medicmobile.org" >> $GITHUB_ENV
           echo "BUILDS_SERVER=_couch/builds_external" >> $GITHUB_ENV
           echo "STAGING_SERVER=_couch/builds_external" >> $GITHUB_ENV
         fi
@@ -121,7 +121,7 @@ jobs:
     - name: Set UPLOARD_URL var
       run: |
         if [[ -z "$MARKET_URL" ]]; then
-          echo "MARKET_URL=https://staging.dev.medicmobile.org" >> $GITHUB_ENV
+          echo "MARKET_URL=https://staging.app.medicmobile.org" >> $GITHUB_ENV
           echo "BUILDS_SERVER=_couch/builds_external" >> $GITHUB_ENV
           echo "STAGING_SERVER=_couch/builds_external" >> $GITHUB_ENV
         fi
@@ -179,7 +179,7 @@ jobs:
     - name: Set MARKET_URL var
       run: |
         if [[ -z "$MARKET_URL" ]]; then
-        echo "MARKET_URL=https://staging.dev.medicmobile.org" >> $GITHUB_ENV
+        echo "MARKET_URL=https://staging.app.medicmobile.org" >> $GITHUB_ENV
         echo "BUILDS_SERVER=_couch/builds_external" >> $GITHUB_ENV
         echo "STAGING_SERVER=_couch/builds_external" >> $GITHUB_ENV
         fi
